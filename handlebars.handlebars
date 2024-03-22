@@ -1,0 +1,34 @@
+{{#if keyspresented}}
+{{keyspresented}} keys presented
+{{/if}}
+
+{{#if onstart.length}}
+On session start:
+{{> actionItems onstart}}
+{{/if}}
+
+{{#if onwrong.length}}
+On wrong guess:
+{{> actionItems onwrong}}
+{{/if}}
+
+{{#if oncorrect.length}}
+On correct guess:
+{{> actionItems oncorrect}}
+{{/if}}
+
+{{#*inline "actionItems"}}
+{{#each this}}
+{{#if (eq action "freeze")}}- Freeze the lock{{/if}}
+{{#if (eq action "unfreeze")}}- Unfreeze the lock{{/if}}
+{{#if (eq action "block")}}- Block unlocking{{/if}}
+{{#if (eq action "unblock")}}- Allow unlocking{{/if}}
+{{#if (eq action "addtime")}}- Add {{durationFromSeconds time}}{{/if}}
+{{#if (eq action "removetime")}}- Remove {{durationFromSeconds time}}{{/if}}
+{{#if (eq action "removeguessedkey")}}- Remove the guessed key{{/if}}
+{{#if (eq action "replaceguessedkey")}}- Replace the guessed key{{/if}}
+{{#if (eq action "resetkeys")}}- 1 in {{number}} chance to reset all keys{{/if}}
+{{#if (eq action "change")}}- Change {{number}} fake key{{#if (unlessEq number 1)}}s{{/if}}{{/if}}
+{{#if (eq action "changekey")}}- 1 in {{number}} chance to change correct key{{/if}}
+{{/each}}
+{{/inline}}
