@@ -1,4 +1,5 @@
 import { extensions } from './config.js';
+import { gitVersion } from './gitversion.js';
 import { config } from 'dotenv';
 const globalConfig=config().parsed;
 
@@ -44,5 +45,5 @@ app.get("/", (req, res) =>
 // Starting the server on the 80 port
 app.listen(port, () => 
 {
-	console.log(`The application started successfully on port ${port}`);
+	console.log(`The application version ${gitVersion} started successfully on port ${port}`);
 });

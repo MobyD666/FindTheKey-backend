@@ -50,10 +50,14 @@ class FindTheKey extends Extension
 
     sanitizeConfig(config,userData=null)
     {
-      config.keyspresentedOrig=config.keyspresented; 
-      if (userData?.keysPresentedDiff != 0) config.keyspresented += userData?.keysPresentedDiff;
-      config.keyspresented=Math.min(config.keyspresented,100);  
-      config.keyspresented=Math.max(config.keyspresented,1);  
+      if (!(config.sanitized))
+      {
+        config.sanitized = true;
+        config.keyspresentedOrig=config.keyspresented; 
+        if (userData?.keysPresentedDiff != 0) config.keyspresented += userData?.keysPresentedDiff;
+        config.keyspresented=Math.min(config.keyspresented,100);  
+        config.keyspresented=Math.max(config.keyspresented,1);  
+      }
       return (config);  
     }
 
@@ -65,30 +69,6 @@ class FindTheKey extends Extension
         this.stats.addStat(new StatsCounter('keys_changed','The total number of correct keys changed midgame'));
         this.stats.addStat(new StatsCounter('fake_keys_added','The total number of fake keys added midgame'));
         this.stats.addStat(new StatsCounter('fake_keys_removed','The total number of fake keys removed midgame'));        
-        
-
-
-        // this.stats.counters = {
-        //     'keys_displayed':0,
-        //     'keys_guessed':0,
-        //     'keys_guessed{result="correct"}':0,
-        //     'keys_guessed{result="incorrect"}':0,
-        //     'keys_changed{reason="wrongguess"}':0,
-        //     'keys_reset{reason="wrongguess"}':0,
-        //     'keys_changed{reason="keyholder",message="silent"}':0,
-        //     'keys_changed{reason="keyholder",message="logged"}':0,
-        // };
-
-        // this.stats.countersHelp={
-        //     'keys_displayed':"#HELP keys_displayed The total number of keys displayed to the users\n#TYPE keys_displayed counter",
-        //     'keys_guessed':"#HELP keys_guessed The total number of keys guessed by the wearers\n#TYPE keys_guessed counter",
-        //     'keys_guessed{result="correct"}':"#HELP keys_guessed The total number of keys guessed by the wearers\n#TYPE keys_guessed counter",
-        //     'keys_guessed{result="incorrect"}':"#HELP keys_guessed The total number of keys guessed by the wearers\n#TYPE keys_guessed counter",
-        //     'keys_changed{reason="wrongguess"}':"#HELP keys_changed The total number of correct keys changed midgame\n#TYPE keys_changed counter",
-        //     'keys_reset{reason="wrongguess"}':"#HELP keys_reset The total number of key resets midgame\n#TYPE keys_reset counter",            
-        //     'keys_changed{reason="keyholder",message="silent"}':"#HELP keys_changed The total number of correct keys changed midgame\n#TYPE keys_changed counter",
-        //     'keys_changed{reason="keyholder",message="logged"}':"#HELP keys_changed The total number of correct keys changed midgame\n#TYPE keys_changed counter",
-        // };
     }
 
     register(app,prefix)
@@ -102,6 +82,7 @@ class FindTheKey extends Extension
         app.post('/'+prefix+'api/restartgame',  async (req, res) => { await this.restartGame(req, res); });
         app.post('/'+prefix+'api/changekey',  async (req, res) => { await this.changeKey(req, res); });
         app.post('/'+prefix+'api/addfakekeys',  async (req, res) => { await this.addFakeKeys(req, res); });        
+        app.post('/'+prefix+'api/unblock',  async (req, res) => { await this.unblock(req, res); });
     }
 
     sendKey(req, res)
@@ -154,18 +135,20 @@ class FindTheKey extends Extension
     async StartGame(sessionId,userData,config)
     {
         userData.state= 'started';
+        userData.keysguessed=0;
+        userData.keysguessedwrong=0;
         this.resetOrSetKeys(userData);
         config=this.sanitizeConfig(config,userData);        
-        if (this.debug) console.log('Config',config);        
+        if (this.debug) console.log(sessionId,'StartGame','Config',config);        
         userData= await this.processActionList(sessionId,config.onstart,userData,config);
         await this.storeUserData(sessionId,userData);
-        if (this.debug) console.log('User data stored',userData);
+        if (this.debug) console.log(sessionId,'User data stored',userData);
         return (userData);
     }
 
     async tryStartGame(sessionId,config=null)
     {
-        if (this.debug) console.log('Trying to start game for session ' + sessionId);
+        if (this.debug) console.log(sessionId,'Trying to start game for session ' + sessionId);
         let userData=await this.getUserData(sessionId);
         if (this.debug) console.log('Got user data for session ' + sessionId,userData);    
         if (userData.state == undefined) userData=await this.StartGame(sessionId,userData,config);
@@ -174,15 +157,21 @@ class FindTheKey extends Extension
 
     async processBasicInfo(session,bi)
     {
-        let userData=await this.getUserData(session.session.sessionId);        
+        //let userData=await this.getUserData(session.session.sessionId);
+        let userData=session.session.data;
         if (session.role=="keyholder") 
         {
-            if (this.debug) console.log('Adding correct key for session',session.session.sessionId);
+            if (this.debug) console.log(session.session.sessionId,'Adding correct key info',userData.key);
             bi.key=this.encodeKeyNumber(userData.key);
-            if (this.debug) console.log('Modified basicInfo',bi);
         }
+        let localConfig=this.sanitizeConfig(bi.config,userData);
         bi.gamestate=userData.state;
-        bi.keyspresented=Math.max(1,bi.config.keyspresented+userData.keysPresentedDiff);
+        bi.keyspresented=localConfig.keyspresented;
+        if (userData.keysguessed == undefined) userData.keysguessed=0;
+        if (userData.keysguessedwrong == undefined) userData.keysguessedwrong=0;
+        bi.keysguessedwrong=userData.keysguessedwrong;
+        bi.keysguessed=userData.keysguessed;
+        if (this.debug) console.log(session.session.sessionId,'Modified basicInfo',bi);        
         return (bi);
     }
 
@@ -208,9 +197,8 @@ class FindTheKey extends Extension
                 let i=0;
                 while (keys.length<config.keyspresented) keys.push(userData.otherKeys[i++]); 
                 keys=this.shuffleInPlace(keys);
-                
              }
-             if (this.debug) console.log('GetKeyCandidates-after',session.session.sessionId,'Modified config keyspresented:',config.keyspresented,'keys.length:',keys.length,'otherkeys.length:',userData.otherKeys.length);
+             if (this.debug) console.log(session.session.sessionId,'GetKeyCandidates-after','Modified config keyspresented:',config.keyspresented,'keys.length:',keys.length,'otherkeys.length:',userData.otherKeys.length);
 
         if (response==null) return res.status(200).send(JSON.stringify({}));
         return res.status(200).send(JSON.stringify({"keys":keys.map(k=>this.encodeKeyNumber(k))})); 
@@ -236,12 +224,15 @@ class FindTheKey extends Extension
             if (userData.state == undefined) userData=await this.tryStartGame(session.session.sessionId,userData,config);
             const guessedKey=this.decodeKeyNumber(req.body.guessKeyId);
             const guessOk=(guessedKey==userData.key);
-            if (this.debug) console.log('Wearer guess is '+((guessOk)?'correct':'incorrect'));
+            if (this.debug) console.log(session.session.sessionId,'Wearer guess is '+((guessOk)?'correct':'incorrect'));
             const response={guessResult:null}
             const actions=await this.getRegularActions(session.session.sessionId);
              if ((actions.nbActionsRemaining >0) || ((actions.nbActionsRemaining==-1)))
              {
                 const a=await this.submitRegularAction(session.session.sessionId,{'message':'Wearer guessed '+((guessOk)?'correct':'wrong')+' key'});
+                if (userData.keysguessed ==undefined) userData.keysguessed=0;
+                if (userData.keysguessedwrong ==undefined) userData.keysguessedwrong=0;
+                userData.keysguessed++;
                 response.guessResult=guessOk;
                 if (guessOk) 
                 {
@@ -253,9 +244,20 @@ class FindTheKey extends Extension
                 }
                 else 
                 {
+                    userData.keysguessedwrong++;
                     this.stats.statsCounterInc('keys_guessed','{result="incorrect"}');
-                    await this.processActionList(session.session.sessionId,config.onwrong,userData,config,guessedKey);
+                    let wrongActions=config.onwrong;
+                    if (config.oncustom != undefined)
+                    {
+                        const every=config.oncustom.filter(cust=> (cust.event=='on_guess_every') && (userData.keysguessedwrong>0)  && (cust.detail>0) && ((userData.keysguessedwrong % cust.detail)==0) );
+                        const exact=config.oncustom.filter(cust=> (cust.event=='on_guess_x') && (userData.keysguessedwrong>0)  && (cust.detail>0) && ((userData.keysguessedwrong == cust.detail)) );
+                        console.log(session.session.sessionId,'wrongGuess advanced','every cnt:',every.length,'exact cnt:',exact.length,'keysguessedwrong',userData.keysguessedwrong);
+                        if (exact.length>0) exact.forEach ( e=> wrongActions.push(... e.actions ));
+                        else if (every.length>0) every.forEach ( e=> wrongActions.push(... e.actions ));
+                    }
+                    await this.processActionList(session.session.sessionId,wrongActions,userData,config,guessedKey);
                     await this.customLogMessage(session.session.sessionId,'user','Guessed the wrong key','Wearer guessed incorrectly.');
+                    await this.storeUserData(session.session.sessionId,userData);
                 }
              }
 
@@ -273,12 +275,12 @@ class FindTheKey extends Extension
     
     async processActionList(sessionId,actions,userData,config,guessedKey)
     {
-        if (this.debug) console.log('Processing action list',actions)
+        if (this.debug) console.log(sessionId,'Processing action list',actions)
         for (var i=0; i<actions.length; i++)
     //    actions.forEach(async action =>
             {
                 const action=actions[i];
-                if (this.debug) console.log('Action',action);
+                if (this.debug) console.log(sessionId,'Action',action);
                 switch (action.action) 
                 {
                     case 'freeze': await this.freeze(sessionId);
@@ -314,7 +316,7 @@ class FindTheKey extends Extension
                             if (this.debugNew) console.log(sessionId,'Otherkeys post removal',userData.otherKeys,'post count:',postCount,'Diff:',postCount-preCount);
                             userData.otherKeys=this.shuffleInPlace(userData.otherKeys);
                             if ((action.action=='removeguessedkey') && (postCount!=preCount)) await this.setKeysPresentedDiffInc(sessionId,userData,config,postCount-preCount,false);
-                            if (this.debug) console.log('afterremovedkey',sessionId,'NewDiff:',userData.keysPresentedDiff);
+                            if (this.debug) console.log(sessionId,'afterremovedkey','NewDiff:',userData.keysPresentedDiff);
                             await this.storeUserData(sessionId,userData);
                         break;
                     case 'removefakekeys':
@@ -339,7 +341,17 @@ class FindTheKey extends Extension
                             }
                             await this.storeUserData(sessionId,userData);
                         }
-                        break;                                                  
+                        break;  
+                    case 'restartgame':
+                        {
+                            userData=await this.StartGame(sessionId,userData,config);
+                        }
+                        break;                                                    
+                    case 'pillory':
+                            {
+                                userData=await this.pillory(sessionId,action.number,'Find the key');
+                            }
+                            break;                          
                 }
         } //);
         return (userData);
@@ -396,14 +408,41 @@ class FindTheKey extends Extension
             const session = await this.getSessionForMainToken(req.body.mainToken);
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
-            if (this.debug) console.log('Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
             if ((userData.state == 'finished') || (session.role=="keyholder") )
-            //NEW FEATUREif ( ((userData.state == 'finished') && (session.role=="wearer")) || ( (session.role=="keyholder") && (session?.session?.lock?.trusted===true) )  )
+            if ( ((userData.state == 'finished') && (session.role=="wearer")) || ( (session.role=="keyholder") && (session?.session?.lock?.trusted===true) )  )
             {
                 userData=await this.StartGame(session.session.sessionId,userData,session.session.config);
             }
 
             return res.status(200).send(JSON.stringify({})); 
+        }
+        catch (err)
+        {
+            console.log(err);
+            return res.status(501).send('Internal server error');
+        }   
+    }
+    
+
+    async unblock(req,res)
+    {
+        let response='';
+        try
+        {
+            let result={};
+            if (this.debug) console.log('unblock',req.body.mainToken);
+            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let userData=session.session.data;
+            //let userData=await this.getUserData(session.session.sessionId);
+            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            if (session.role=="keyholder")
+            {
+                await this.setReasonsPreventingUnlocking(session.session.sessionId,'');
+                await this.customLogMessage(session.session.sessionId,session.role,'Unlocking unblocked','The keyholder unblocked the lock, allowing it to unlock after timer expires.');
+            }
+
+            return res.status(200).send(JSON.stringify(result)); 
         }
         catch (err)
         {
@@ -422,10 +461,11 @@ class FindTheKey extends Extension
             const session = await this.getSessionForMainToken(req.body.mainToken);
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
-            if (this.debug) console.log('Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
             const silent=req.body.silent;
             if (session.role=="keyholder")
             {
+                if (session?.session?.lock?.trusted !== true) silent=false;
                 userData=this.setNewKey(userData);
                 await this.storeUserData(session.session.sessionId,userData);
                 if (session.role=="keyholder") 
@@ -465,7 +505,7 @@ class FindTheKey extends Extension
             let config=this.sanitizeConfig(session.session.config,userData);
             //let userData=await this.getUserData(session.session.sessionId);
             let addCount=req.body.count;
-            if (this.debug) console.log('Game state',userData.state,'User role',session.role);
+            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role);
             if ((session.role=="keyholder") || ( ((session.role=="wearer") && addCount>0)  ))
             {
                 if (addCount>100) addCount=100;
@@ -585,7 +625,7 @@ class FindTheKey extends Extension
       userData.keysPresentedDiff+=inc;
       userData.keysPresentedDiff=Math.min(userData.keysPresentedDiff,100-config.keyspresentedOrig);  
       userData.keysPresentedDiff=Math.max(userData.keysPresentedDiff,-1*config.keyspresentedOrig+1);  
-      if (this.debug) console.log('Modifying KeyPresentedDiff',sessionId,'pre:',logpre,'post:',userData.keysPresentedDiff,'config:',config.keyspresented,'configOrig:',config.keyspresentedOrig,'inc:',inc);
+      if (this.debug) console.log(sessionId,'Modifying KeyPresentedDiff','pre:',logpre,'post:',userData.keysPresentedDiff,'config:',config.keyspresented,'configOrig:',config.keyspresentedOrig,'inc:',inc);
 
       if (save) await this.storeUserData(sessionId,userData);
       return (config);  
@@ -626,7 +666,7 @@ class FindTheKey extends Extension
             metrics += "#HELP keyholders Current number of unique key holders\n#TYPE keyholders gauge\n";
             metrics += "keyholders "+this.globalMetrics.keyholders+"\n";
         }                
-        if (this.debug) console.log('Generated metrics',metrics);
+        //if (this.debug) console.log('Generated metrics',metrics);
         return (metrics);
     }
 
@@ -661,7 +701,7 @@ class FindTheKey extends Extension
                         keyholdedlocks++;
                         if (s?.lock?.trusted) keyholdedlocks_trusted++;
                     }
-                    if (s?.lock?.isTestLock == "true") testlocks += 1;
+                    if (this.isTrue(s?.lock?.isTestLock)) testlocks += 1;
                 });
                 this.globalMetrics.testlocks=testlocks;
                 this.globalMetrics.keyholdedlocks=keyholdedlocks;

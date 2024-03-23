@@ -125,7 +125,7 @@ class  Extension
             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "GET" }); 
             if (this.debugAPICall) console.log(response.status);
             const t=this.end_profile('api'+url);
-            if (this.profileAPICall) console.log('API GET '+url+' took '+t.toFixed(3)+'ms');
+            if (this.profileAPICall) console.log('API GET '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
             let data= null;
             try
             {
@@ -162,7 +162,7 @@ class  Extension
             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "POST", "body": JSON.stringify(body) }); 
             if (this.debugAPICall) console.log(response.status+' '+response.statusText);
             const t=this.end_profile('api'+url);
-            if (this.profileAPICall) console.log('API POST '+url+' took '+t.toFixed(3)+'ms');
+            if (this.profileAPICall) console.log('API POST '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
             if (additionalInfo != null) additionalInfo.response = response;
             let data=null;
             try
@@ -199,7 +199,7 @@ class  Extension
              const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "PUT", "body": JSON.stringify(body) }); 
              if (this.debugAPICall) console.log(response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
-             if (this.profileAPICall) console.log('API PUT '+url+' took '+t.toFixed(3)+'ms');             
+             if (this.profileAPICall) console.log('API PUT '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
              let data=null;
              try
              {
@@ -235,7 +235,7 @@ class  Extension
              const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "PATCH", "body": JSON.stringify(body) }); 
              if (this.debugAPICall) console.log(response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
-             if (this.profileAPICall) console.log('API PATCH '+url+' took '+t.toFixed(3)+'ms');             
+             if (this.profileAPICall) console.log('API PATCH '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
              let data=null;
              try
              {
@@ -610,15 +610,16 @@ class  Extension
     {
         try
         {
-        if (this.debug) console.log(req.body.mainToken);
+        //if (this.debug) console.log(req.body.mainToken);
         const session = await this.getSessionForMainToken(req.body.mainToken);
-
-        const actions=await this.getRegularActions(session.session.sessionId);
-        const tr=this.timeRemaining(actions.nextActionDate);
+        //console.log(session);
+        console.log(session.session.sessionId,'Mode:',session.session.mode,'Regularity:',session.session.regularity,'nbActionsRemaining:',session.session.nbActionsRemaining,'nextActionDate',session.session.nextActionDate);
+        //const actions=await this.getRegularActions(session.session.sessionId);
+        const tr=this.timeRemaining(session.session.nextActionDate);
         let avatar=session?.session?.lock?.user?.avatarUrl;
         let trusted=session?.session?.lock?.trusted;
         let keyholder=session?.session?.lock?.keyholder?.username;
-        const basicInfo=await this.processBasicInfo(session,{"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:tr,actionsRemaining:actions.nbActionsRemaining,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
+        const basicInfo=await this.processBasicInfo(session,{"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:tr,actionsRemaining:session.session.nbActionsRemaining,mode:session.session.mode,regularity:session.session.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
    
         return res.status(200).send(JSON.stringify(basicInfo));
         }
@@ -645,7 +646,7 @@ class  Extension
     {
         try
         {
-        console.log(req.body.configurationToken);
+        //console.log(req.body.configurationToken);
         const config = await this.getConfigurationForConfigurationToken(req.body.configurationToken);
         return res.status(200).send(JSON.stringify(config));
         }
