@@ -193,7 +193,7 @@ class FindTheKey extends Extension
         let response='';
         try
         {
-            if (this.debug) console.log('GetKeyCandidates',req.body.mainToken);
+            //if (this.debug) console.log('GetKeyCandidates',req.body.mainToken);
             const session = await this.getSessionForMainToken(req.body.mainToken);
             //console.log('Sessions',session);
             //let userData=await this.getUserData(session.session.sessionId);
@@ -366,7 +366,7 @@ class FindTheKey extends Extension
                             {
                                 userData=await this.pillory(sessionId,action.number,'Find the key');
                             }
-                            break;                          
+                        break;                          
                 }
         } //);
         return (userData);
@@ -410,8 +410,7 @@ class FindTheKey extends Extension
             const session = await this.getSessionForMainToken(req.body.mainToken);
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
-            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
-            if ((userData.state == 'finished') || (session.role=="keyholder") )
+            if (this.debug) console.log(session.session.sessionId,'Game restart request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
             if ( ((userData.state == 'finished') && (session.role=="wearer")) || ( (session.role=="keyholder") && (session?.session?.lock?.trusted===true) )  )
             {
                 userData=await this.StartGame(session.session.sessionId,userData,session.session.config);
@@ -435,11 +434,10 @@ class FindTheKey extends Extension
         try
         {
             let result={};
-            if (this.debug) console.log('unblock',req.body.mainToken);
             const session = await this.getSessionForMainToken(req.body.mainToken);
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
-            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            if (this.debug) console.log(session.session.sessionId,'unblock request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
             if (session.role=="keyholder")
             {
                 await this.setReasonsPreventingUnlocking(session.session.sessionId,'');
@@ -461,11 +459,10 @@ class FindTheKey extends Extension
         try
         {
             let result={};
-            if (this.debug) console.log('changeKey',req.body.mainToken);
             const session = await this.getSessionForMainToken(req.body.mainToken);
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
-            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            if (this.debug) console.log(session.session.sessionId,'Change key request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
             const silent=req.body.silent;
             if (session.role=="keyholder")
             {
@@ -503,13 +500,12 @@ class FindTheKey extends Extension
         try
         {
             let result={};
-            if (this.debug) console.log('addFakeKeys',req.body.mainToken);
             const session = await this.getSessionForMainToken(req.body.mainToken);
             let userData=session.session.data;            
             let config=this.sanitizeConfig(session.session.config,userData);
             //let userData=await this.getUserData(session.session.sessionId);
             let addCount=req.body.count;
-            if (this.debug) console.log(session.session.sessionId,'Game state',userData.state,'User role',session.role);
+            if (this.debug) console.log(session.session.sessionId,'AddFakeKeys','Game state',userData.state,'User role',session.role);
             if ((session.role=="keyholder") || ( ((session.role=="wearer") && addCount>0)  ))
             {
                 if (addCount>100) addCount=100;
@@ -613,8 +609,11 @@ class FindTheKey extends Extension
        { 
         //console.log('Processing action log',data.data);
         const events=this.parseActionLogEvents(data);
-        if (this.debugWebHooks) console.log('Processing actionlog events:',events);
-        events.forEach(async e=> await this.processActionLogEvent(e));
+        if (events.length > 0)
+        {
+            if (this.debugWebHooks) console.log('Processing actionlog events:',events);
+            events.forEach(async e=> await this.processActionLogEvent(e));
+        }
        }
        catch (error)
        {
@@ -655,6 +654,11 @@ class FindTheKey extends Extension
             metrics += "#HELP keyholded_locks Current number of locks with keyholder\n#TYPE keyholded_locks gauge\n";
             metrics += "keyholded_locks "+this.globalMetrics.keyholdedlocks+"\n";
         }
+        if (this.globalMetrics.findomlocks != undefined) 
+        {
+            metrics += "#HELP findomlocks Current number of locks with findom keyholder\n#TYPE findomlocks gauge\n";
+            metrics += "findomlocks "+this.globalMetrics.findomlocks+"\n";
+        }        
         if (this.globalMetrics.keyholdedlocks_trusted != undefined) 
         {
             metrics += "#HELP keyholded_locks_trusted Current number of locks with keyholder trusted\n#TYPE keyholded_locks_trusted gauge\n";
@@ -670,6 +674,10 @@ class FindTheKey extends Extension
             metrics += "#HELP keyholders Current number of unique key holders\n#TYPE keyholders gauge\n";
             metrics += "keyholders "+this.globalMetrics.keyholders+"\n";
         }                
+        if (this.globalMetrics.keyholders_findom != undefined) 
+        {
+            metrics += "keyholders{findom=true} "+this.globalMetrics.keyholders_findom+"\n";
+        }                        
         //if (this.debug) console.log('Generated metrics',metrics);
         return (metrics);
     }
@@ -693,7 +701,9 @@ class FindTheKey extends Extension
             {
                 let wearers={};
                 let keyholders={};
+                let keyholders_findom={};
                 let testlocks=0;
+                let findomlocks=0;
                 let keyholdedlocks=0;
                 let keyholdedlocks_trusted=0;
                 sessions.results.forEach((s) => 
@@ -704,13 +714,20 @@ class FindTheKey extends Extension
                         keyholders[s.lock.keyholder.username]=s.lock.keyholder.username;
                         keyholdedlocks++;
                         if (s?.lock?.trusted) keyholdedlocks_trusted++;
+                        if (this.isTrue(s.lock.keyholder.isFindom)) 
+                        {
+                            keyholders_findom[s.lock.keyholder.username]=s.lock.keyholder.username;
+                            findomlocks++;
+                        }
                     }
                     if (this.isTrue(s?.lock?.isTestLock)) testlocks += 1;
                 });
                 this.globalMetrics.testlocks=testlocks;
                 this.globalMetrics.keyholdedlocks=keyholdedlocks;
                 this.globalMetrics.keyholdedlocks_trusted=keyholdedlocks_trusted;
+                this.globalMetrics.findomlocks=findomlocks;
                 this.globalMetrics.keyholders=Object.keys(keyholders).length;
+                this.globalMetrics.keyholders_findom=Object.keys(keyholders_findom).length;
                 this.globalMetrics.wearers=Object.keys(wearers).length;
             }
             if (this.debug) console.log('Global metrics',this.globalMetrics);

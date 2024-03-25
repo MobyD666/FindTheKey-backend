@@ -270,7 +270,7 @@ class  Extension
                 if (this.debug) console.log(logId+' '+apicallId,'Sleeping for',sleeptime,' before next try');
                 await this.sleep(sleeptime);
             }
-            if (this.debug) console.log(logId+' '+apicallId,'APICall '+method+' '+url,'try',tryidx,'retries',retries,'critical',critical);
+            if (this.debug) console.log(logId+' '+apicallId,'API Call '+method+' '+url,'try',tryidx,'retries',retries,'critical',critical);
             switch (method) 
             {
                 case 'PATCH': responsedata = await this.APIPatch(url,data,ai);break;
