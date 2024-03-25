@@ -562,7 +562,7 @@ class  Extension
              "title": title,
              "description": description
            };
-           const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/logs/custom',log,3,true,[401,404,422],ai);
+           const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/logs/custom',log,3,true,[401,404,422]);
            return(rv); 
     }
 
@@ -625,7 +625,7 @@ class  Extension
         let opts={"extensionSlug":extensionSlug};
         if (limit != undefined) opts.limit=limit;
         if (paginationLastId != undefined) opts.paginationLastId=paginationLastId;
-        const sessions= await this.APICall(extensionSlug,'POST','sessions/search',opts,3,true,[401,404,422],ai);
+        const sessions= await this.APICall(extensionSlug,'POST','sessions/search',opts,3,true,[401,404,422]);
         return(sessions);
     }
 
