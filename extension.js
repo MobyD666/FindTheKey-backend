@@ -112,9 +112,10 @@ class  Extension
      * Semi internal method to call Chaster API with get method
      *
      * @param url - part url after chasterBaseUrl
+     * @param additionalInfo - javascript object that will receive additional information - most importantly the response
      * @returns object with parsed  response
      */
-    async APIGet(url)
+    async APIGet(url,additionalInfo=null)
     {
         try 
         {
@@ -125,16 +126,10 @@ class  Extension
             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "GET" }); 
             if (this.debugAPICall) console.log(response.status);
             const t=this.end_profile('api'+url);
+            if (additionalInfo != null) { additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText;}
             if (this.profileAPICall) console.log('API GET '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
             let data= null;
-            try
-            {
-               data = await response.json();
-            }
-            catch (error) 
-            {
-                data = null;
-            }
+            try { data=await response.json(); } catch (error) { }
             return(data);
         } catch (error) 
         {
@@ -163,16 +158,9 @@ class  Extension
             if (this.debugAPICall) console.log(response.status+' '+response.statusText);
             const t=this.end_profile('api'+url);
             if (this.profileAPICall) console.log('API POST '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
-            if (additionalInfo != null) additionalInfo.response = response;
+            if (additionalInfo != null) {  additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText; /*if (this.chance(2)){ additionalInfo.status=505;}*/}
             let data=null;
-            try
-            {
-               data = await response.json();
-            }
-            catch (error) 
-            {
-                data = null;
-            }
+            try { data=await response.json(); } catch (error) { }
             return(data);
         } catch (error) 
         {
@@ -186,9 +174,10 @@ class  Extension
      *
      * @param url - part url after chasterBaseUrl
      * @param body - JavascriptObject containing the put data (this method will convert it to string)
+     * @param additionalInfo - javascript object that will receive additional information - most importantly the response
      * @returns object with parsed  response
      */
-     async APIPut(url,body)
+     async APIPut(url,body,additionalInfo=null)
      {
          try 
          {
@@ -200,15 +189,9 @@ class  Extension
              if (this.debugAPICall) console.log(response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
              if (this.profileAPICall) console.log('API PUT '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
+             if (additionalInfo != null) {  additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText;}
              let data=null;
-             try
-             {
-                data = await response.json();
-             }
-             catch (error) 
-             {
-                 data = null;
-             }
+             try { data=await response.json(); } catch (error) { }
              return(data);
          } catch (error) 
          {
@@ -222,9 +205,10 @@ class  Extension
      *
      * @param url - part url after chasterBaseUrl
      * @param body - JavascriptObject containing the patch data (this method will convert it to string)
+     * @param additionalInfo - javascript object that will receive additional information - most importantly the response 
      * @returns object with parsed  response
      */
-     async APIPatch(url,body)
+     async APIPatch(url,body,additionalInfo=null)
      {
          try 
          {
@@ -236,21 +220,67 @@ class  Extension
              if (this.debugAPICall) console.log(response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
              if (this.profileAPICall) console.log('API PATCH '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
+             if (additionalInfo != null) {  additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText; /*if (this.chance(3)){ additionalInfo.status=505;}*/}
              let data=null;
-             try
-             {
-                data = await response.json();
-             }
-             catch (error) 
-             {
-                 data = null;
-             }
+             try { data=await response.json(); } catch (error) { }
              return(data);
          } catch (error) 
          {
              console.log('Fetch PATCH error for URL: ',url,error);
              return(null);
          }
+     }
+
+     sleep(ms) 
+     {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+
+     async APICall(logId,method,url,data=null,retries=1,critical=false,unrecoverableErrors=[],additionalInfo=null)
+     {
+        let ai={};
+        let tryidx=0;
+        let responsedata=null;
+        while (tryidx < retries)
+        {
+            tryidx++;
+            if (tryidx>1) 
+            {
+                const sleeptime=(tryidx-1)*3000;
+                if (this.debug) console.log(logId,'Sleeping for',sleeptime,' before next try');
+                await this.sleep(sleeptime);
+            }
+            if (this.debug) console.log(logId,'APICall'+method+' '+url,'try',tryidx,'retries',retries,'critical',critical);
+            switch (method) 
+            {
+                case 'PATCH': responsedata = await this.APIPatch(url,data,ai);break;
+                case 'POST':  responsedata =await this.APIPost(url,data,ai);break;
+                case 'PUT':   responsedata =await this.APIPut(url,data,ai);break;
+                case 'GET':   responsedata =await this.APIGet(url,ai);break;
+            }
+            if (additionalInfo!=null) additionalInfo=ai;
+            if ((ai.status >= 200) && (ai.status <299))
+            {
+                return (responsedata); 
+            }
+            else
+            {
+                console.log(logId,'API Call for '+url+' failed with',ai.status,ai.statustext);                
+                if (unrecoverableErrors.includes(ai.status)) 
+                {
+                    if (this.debug) console.log(logId,'Unrecoverable error, aborting');
+                    return(null);
+                }
+            }
+        }
+        if (critical)
+        {
+            if (this.debug) console.log(logId,'CRITICAL API Call for '+url+' exhausted all tries');
+        }
+        else
+        {
+            if (this.debug) console.log(logId,'NONcritical API Call for '+url+' exhausted all tries');
+        }
      }
 
      /**
@@ -287,7 +317,7 @@ class  Extension
      */
     async storeUserData(sessionID,userData)
     {
-        const rv= await this.APIPatch('sessions/'+sessionID,{"data":userData});
+        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"data":userData},3,true,[401,404]);
         return (rv);
     }
 
@@ -321,7 +351,8 @@ class  Extension
      */
     async storeSessionMetaData(sessionID,metaData)
     {
-        const rv= await this.APIPatch('sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}});
+        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}},3,true,[401,404]);
+        //const rv= await this.APIPatch('sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}});
         return (rv);
     } 
 
@@ -333,7 +364,7 @@ class  Extension
      */
     async storeSessionConfig(sessionID,config)
     {
-        const rv= await this.APIPatch('sessions/'+sessionID,{"config":config});
+        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"config":config},3,true,[401,404]);
         return (rv);
     }     
     
@@ -356,9 +387,9 @@ class  Extension
      */
     async submitRegularAction(sessionID,payload)
     {
-        let ai={"response":null};
-        const rv= await this.APIPost('sessions/'+sessionID+'/regular-actions',{"payload":payload},ai);
-        return (ai.response.status==201);  
+        let ai={"status":0};
+        const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/regular-actions',{"payload":payload},3,true,[401,404,422],ai);
+        return (ai.status==201);  
     }
 
 
@@ -408,7 +439,8 @@ class  Extension
      */
     async lockAction(sessionID,actionData)
     {
-        return(this.APIPost('sessions/'+sessionID+'/action',actionData));        
+        const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/action',actionData,3,true,[401,404]);
+        return(rv);
     }
 
     /**
@@ -602,6 +634,37 @@ class  Extension
         return res.status(200).send(JSON.stringify({'response':'API Ready'}));
     }
 
+    regularActionInfo(session)
+    {
+
+        let result={'available':false,mode:null,actionsRemaining:null,nextActionDate:null,regularity:null,nextActionIn:null};
+        //cumulative, non_cumulative, turn, unlimited
+        result.mode=session.mode;
+        switch (session.mode) 
+        {
+            case 'cumulative':
+            case 'non_cumulative':                
+                result.actionsRemaining=session.nbActionsRemaining;
+                result.nextActionDate=session.nextActionDate;
+                result.available=result.actionsRemaining>0;  
+                result.regularity=session.regularity;
+                result.nextActionIn=(result.available)?0:this.timeRemaining(result.nextActionDate);
+            break;
+            
+            case 'unlimited':
+               result.actionsRemaining=-1;
+               result.nextActionDate=null;
+               result.available=true; 
+               result.regularity=null;
+               result.nextActionIn=0;
+            break;                
+        }
+
+        return result;
+    }
+
+    
+
     /**
      * Returns the basic info about the session 
      * 
@@ -614,12 +677,12 @@ class  Extension
         const session = await this.getSessionForMainToken(req.body.mainToken);
         //console.log(session);
         console.log(session.session.sessionId,'Mode:',session.session.mode,'Regularity:',session.session.regularity,'nbActionsRemaining:',session.session.nbActionsRemaining,'nextActionDate',session.session.nextActionDate);
+        const actionInfo=this.regularActionInfo(session.session);
         //const actions=await this.getRegularActions(session.session.sessionId);
-        const tr=this.timeRemaining(session.session.nextActionDate);
         let avatar=session?.session?.lock?.user?.avatarUrl;
         let trusted=session?.session?.lock?.trusted;
         let keyholder=session?.session?.lock?.keyholder?.username;
-        const basicInfo=await this.processBasicInfo(session,{"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:tr,actionsRemaining:session.session.nbActionsRemaining,mode:session.session.mode,regularity:session.session.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
+        const basicInfo=await this.processBasicInfo(session,{"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:actionInfo.nextActionIn,actionsRemaining:actionInfo.actionsRemaining,mode:actionInfo.mode,regularity:actionInfo.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
    
         return res.status(200).send(JSON.stringify(basicInfo));
         }
@@ -813,7 +876,7 @@ class  Extension
         if (this.debug) console.log('Requesting metrics from extension');
         let metrics='';
         metrics=await this.generateMetrics(metrics);
-        if (this.debug) console.log('Got metrics',metrics);
+        //if (this.debug) console.log('Got metrics',metrics);
         return await this.stats.requestMetrics(req, res,metrics);
     }
 

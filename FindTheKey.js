@@ -31,7 +31,6 @@ class FindTheKey extends Extension
         this.webhooks['extension_session.created']= async (data,req,res) =>  
         {
             if (this.debugWebHooks) console.log('New session reported by webhook',data.data.session.sessionId);
-            //await this.setReasonsPreventingUnlocking(data.data.session.sessionId,'Not so fast');
             setTimeout(async ()=>{await this.tryStartGame(data.data.session.sessionId,data.data.session.config);},1000);
             
         };
@@ -132,17 +131,31 @@ class FindTheKey extends Extension
         return (userData);
     }
 
+    async burnTries(sessionId,userData,actionData,triesToBurn=null)
+    {
+        console.log(sessionId,'Action data for burnTries',actionData);
+        if (triesToBurn==null) triesToBurn=actionData.actionsRemaining-1;
+        if ((actionData!=undefined) && (actionData.mode=='cumulative') && (triesToBurn>0))
+        {
+            if (this.debug) console.log(sessionId,'Burning ',triesToBurn,'actions');
+            if (userData.cumulativeBurned==undefined) userData.cumulativeBurned=0;
+            userData.cumulativeBurned+=triesToBurn;
+            await this.storeUserData(sessionId,userData);
+        }
+    }
+
     async StartGame(sessionId,userData,config)
     {
         userData.state= 'started';
         userData.keysguessed=0;
         userData.keysguessedwrong=0;
+        userData.lastGuessed=null;
         this.resetOrSetKeys(userData);
         config=this.sanitizeConfig(config,userData);        
         if (this.debug) console.log(sessionId,'StartGame','Config',config);        
         userData= await this.processActionList(sessionId,config.onstart,userData,config);
         await this.storeUserData(sessionId,userData);
-        if (this.debug) console.log(sessionId,'User data stored',userData);
+        if (this.debug) console.log(sessionId,'User data stored',userData);        
         return (userData);
     }
 
@@ -188,8 +201,9 @@ class FindTheKey extends Extension
             let config=this.sanitizeConfig(session.session.config,userData);
             if (userData.state == undefined) userData=await this.tryStartGame(session.session.sessionId,userData,config);
             let keys=[];
-            const actions=await this.getRegularActions(session.session.sessionId);
-             if ((actions.nbActionsRemaining >0) || ((actions.nbActionsRemaining==-1)))
+            //const actions=await this.getRegularActions(session.session.sessionId);
+            const actionInfo=this.regularActionInfo(session.session);
+            if (actionInfo.available)
              {
                 
                 keys.push(userData.key);
@@ -226,10 +240,11 @@ class FindTheKey extends Extension
             const guessOk=(guessedKey==userData.key);
             if (this.debug) console.log(session.session.sessionId,'Wearer guess is '+((guessOk)?'correct':'incorrect'));
             const response={guessResult:null}
-            const actions=await this.getRegularActions(session.session.sessionId);
-             if ((actions.nbActionsRemaining >0) || ((actions.nbActionsRemaining==-1)))
+            const actionInfo=this.regularActionInfo(session.session);
+            if (actionInfo.available)
              {
                 const a=await this.submitRegularAction(session.session.sessionId,{'message':'Wearer guessed '+((guessOk)?'correct':'wrong')+' key'});
+                userData.lastGuessed=new Date();
                 if (userData.keysguessed ==undefined) userData.keysguessed=0;
                 if (userData.keysguessedwrong ==undefined) userData.keysguessedwrong=0;
                 userData.keysguessed++;
@@ -413,6 +428,8 @@ class FindTheKey extends Extension
             if ( ((userData.state == 'finished') && (session.role=="wearer")) || ( (session.role=="keyholder") && (session?.session?.lock?.trusted===true) )  )
             {
                 userData=await this.StartGame(session.session.sessionId,userData,session.session.config);
+                const actionData=this.regularActionInfo(session.session);
+                this.burnTries(session.session.sessionId,userData,actionData);
             }
 
             return res.status(200).send(JSON.stringify({})); 
@@ -718,6 +735,36 @@ class FindTheKey extends Extension
         setTimeout(async ()=>{await this.prepareGlobalMetrics(cnt+1);},60000);
     }
     
+    regularActionInfo(session)
+    {
+        let result =super.regularActionInfo(session);
+        if (result.mode =='cumulative')
+        {
+    
+            let userData=session.data;
+            if (userData.cumulativeBurned != undefined)
+            {
+                result.actionsRemainingOrig=result.actionsRemaining;
+                result.actionsRemaining=Math.max(0,result.actionsRemaining-userData.cumulativeBurned);
+                result.available=result.actionsRemaining>0; 
+                //userData.lastGuessed
+                if (result.available) { result.nextActionIn=0; }
+                else
+                {
+                    if (this.debug) console.log('Recaulculating time till next action ','lastguessed',userData.lastGuessed,typeof userData.lastGuessed);
+                    if ((userData.lastGuessed==undefined) || (userData.lastGuessed==null)) { result.nextActionIn=0; }
+                    else
+                    {
+                        const diff=(new Date()-new Date(userData.lastGuessed))/1000;
+                        result.nextActionIn=Math.max(0,Math.ceil(result.regularity-diff));
+                    }
+                    //result.nextActionIn=this.timeRemaining(result.nextActionDate);
+                }
+                if (this.debug) console.log(session.sessionId,'Modifying cumulative guesses number','remaining pre',result.actionsRemainingOrig,'remaining post',result.actionsRemaining,'burned',userData.cumulativeBurned,'nextActionIn',result.nextActionIn,'available',result.available)
+            }
+        }
+        return (result);
+    }
 
 
     

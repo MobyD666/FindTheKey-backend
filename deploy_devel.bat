@@ -4,6 +4,8 @@ SETLOCAL EnableDelayedExpansion
 REM Get the current git describe string
 FOR /F "tokens=*" %%i IN ('git describe --always --long ') DO SET GIT_DESCRIBE=%%i
 
+echo Deploying version !GIT_DESCRIBE! to the development server (rocky1)
+
 REM Update GitVersion.js
 echo export const gitVersion= '!GIT_DESCRIBE!'  > gitversion.js
 
