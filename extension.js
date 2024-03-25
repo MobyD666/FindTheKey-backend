@@ -315,7 +315,7 @@ class  Extension
      */
     async getSessionForMainToken(mainToken)
     {
-        const session= await this.APIGet('auth/sessions/'+mainToken);
+        const session= await this.APICall(mainToken,'GET','auth/sessions/'+mainToken,null,3,false,[401,404]);
         return (session);
     }
 
@@ -326,7 +326,7 @@ class  Extension
      */
     async getUserData(sessionID)
     {
-        const userData= await this.APIGet('sessions/'+sessionID);
+        const userData= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
         return (userData.session.data);
     }
 
@@ -349,7 +349,7 @@ class  Extension
      */
     async getSession(sessionID)
     {
-        const session= await this.APIGet('sessions/'+sessionID);
+        const session= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
         return (session);
     }    
 
@@ -360,7 +360,7 @@ class  Extension
      */
     async getSessionMetaData(sessionID)
     {
-        const userData= await this.APIGet('sessions/'+sessionID);
+        const userData= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
         return (userData.session.metadata);
     }
 
@@ -396,7 +396,7 @@ class  Extension
      */
     async getRegularActions(sessionID)
     {
-        const actions= await this.APIGet('sessions/'+sessionID+'/regular-actions');
+        const actions= await this.APICall(sessionID,'GET','sessions/'+sessionID+'/regular-actions',null,3,false,[401,404]);
         return (actions);
     }
 
@@ -424,7 +424,7 @@ class  Extension
      */
     async getConfigurationForConfigurationToken(configurationToken)
     {
-        const config= await this.APIGet('configurations/'+configurationToken);
+        const config= await this.APICall(configurationToken,'GET','configurations/'+configurationToken,null,3,false,[401,404]);
         return (config);
     }
 
@@ -439,8 +439,7 @@ class  Extension
      */
     async saveConfigurationForConfigurationToken(configurationToken,config)
     {
-        console.log('tmp',config);
-        const newconfig= await this.APIPut('configurations/'+configurationToken,{"config":config.config});
+        const newconfig= await this.APICall(configurationToken,'PUT','configurations/'+configurationToken,{"config":config.config},3,false,[401,404]);
         return (newconfig);
     }        
 
@@ -563,7 +562,8 @@ class  Extension
              "title": title,
              "description": description
            };
-           return(this.APIPost('sessions/'+sessionID+'/logs/custom',log)); 
+           const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/logs/custom',log,3,true,[401,404,422],ai);
+           return(rv); 
     }
 
     /**
@@ -625,7 +625,7 @@ class  Extension
         let opts={"extensionSlug":extensionSlug};
         if (limit != undefined) opts.limit=limit;
         if (paginationLastId != undefined) opts.paginationLastId=paginationLastId;
-        const sessions=await this.APIPost('sessions/search',opts);
+        const sessions= await this.APICall(extensionSlug,'POST','sessions/search',opts,3,true,[401,404,422],ai);
         return(sessions);
     }
 
