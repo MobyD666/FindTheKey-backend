@@ -676,7 +676,8 @@ class FindTheKey extends Extension
         }                
         if (this.globalMetrics.keyholders_findom != undefined) 
         {
-            metrics += "keyholders{findom=true} "+this.globalMetrics.keyholders_findom+"\n";
+            metrics += "#HELP keyholders_findom Current number of unique key holders\n#TYPE keyholders_findom gauge\n";
+            metrics += "keyholders_findom "+this.globalMetrics.keyholders_findom+"\n";
         }                        
         //if (this.debug) console.log('Generated metrics',metrics);
         return (metrics);

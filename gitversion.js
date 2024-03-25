@@ -1,1 +1,1 @@
-export const gitVersion= 'a334e5e'  
+export const gitVersion= '5fa496a'  
