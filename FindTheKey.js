@@ -397,19 +397,6 @@ class FindTheKey extends Extension
     onBeforeConfigSave(config)
     {
         config.config.textConfig='';
-        /*
-        console.log('preconfig',config);
-        config.config.textConfig=config.config.keyspresented+" keys presented\r\n\r\n";
-        let actions=[];
-        config.config.onstart.forEach(a=>actions.push('- '+this.actionTextSummary(a)+"\r\n"));
-        config.config.textConfig+='On start: \r\n\r\n'+actions.join('')+"\r\n\r\n";
-        actions=[];
-        config.config.onwrong.forEach(a=>actions.push('- '+this.actionTextSummary(a)+"\r\n"));
-        config.config.textConfig+='On wrong guess: \r\n\r\n'+actions.join('')+"\r\n\r\n";
-        actions=[];
-        config.config.oncorrect.forEach(a=>actions.push('- '+this.actionTextSummary(a)+"\r\n"));
-        config.config.textConfig+='On correct guess: \r\n\r\n'+actions.join('')+"\r\n";
-        */
         return(config);
     }
     
