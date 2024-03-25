@@ -364,7 +364,7 @@ class FindTheKey extends Extension
                         break;                                                    
                     case 'pillory':
                             {
-                                userData=await this.pillory(sessionId,action.number,'Find the key');
+                                userData=await this.pillory(sessionId,action.time,'Find the key');
                             }
                         break;                          
                 }
