@@ -56,6 +56,20 @@ class  Extension
 
     }
 
+    generateRandomIdentifier(length=8) 
+    {
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let identifier = '';
+        
+        for (let i = 0; i < length; i++) 
+        {
+          const randomIndex = Math.floor(Math.random() * characters.length);
+          identifier += characters.charAt(randomIndex);
+        }
+        
+        return identifier;
+      }
+
     isTrue(s)
     {
         return ((s===true) || ((typeof s == 'string') && ((s.toUpperCase()==="TRUE") || (s.toUpperCase==="ON"))));
@@ -241,16 +255,17 @@ class  Extension
         let ai={};
         let tryidx=0;
         let responsedata=null;
+        const apicallId=this.generateRandomIdentifier(8);
         while (tryidx < retries)
         {
             tryidx++;
             if (tryidx>1) 
             {
                 const sleeptime=(tryidx-1)*3000;
-                if (this.debug) console.log(logId,'Sleeping for',sleeptime,' before next try');
+                if (this.debug) console.log(logId+' '+apicallId,'Sleeping for',sleeptime,' before next try');
                 await this.sleep(sleeptime);
             }
-            if (this.debug) console.log(logId,'APICall'+method+' '+url,'try',tryidx,'retries',retries,'critical',critical);
+            if (this.debug) console.log(logId+' '+apicallId,'APICall '+method+' '+url,'try',tryidx,'retries',retries,'critical',critical);
             switch (method) 
             {
                 case 'PATCH': responsedata = await this.APIPatch(url,data,ai);break;
@@ -261,25 +276,26 @@ class  Extension
             if (additionalInfo!=null) additionalInfo=ai;
             if ((ai.status >= 200) && (ai.status <299))
             {
+                console.log(logId+' '+apicallId,'API Call for '+url+' succeeded with',ai.status,ai.statustext);
                 return (responsedata); 
             }
             else
             {
-                console.log(logId,'API Call for '+url+' failed with',ai.status,ai.statustext);                
+                console.log(logId+' '+apicallId,'API Call for '+url+' failed with',ai.status,ai.statustext);                
                 if (unrecoverableErrors.includes(ai.status)) 
                 {
-                    if (this.debug) console.log(logId,'Unrecoverable error, aborting');
+                    if (this.debug) console.log(logId+' '+apicallId,'Unrecoverable error, aborting');
                     return(null);
                 }
             }
         }
         if (critical)
         {
-            if (this.debug) console.log(logId,'CRITICAL API Call for '+url+' exhausted all tries');
+            if (this.debug) console.log(logId+' '+apicallId,'CRITICAL API Call for '+url+' exhausted all tries');
         }
         else
         {
-            if (this.debug) console.log(logId,'NONcritical API Call for '+url+' exhausted all tries');
+            if (this.debug) console.log(logId+' '+apicallId,'NONcritical API Call for '+url+' exhausted all tries');
         }
      }
 
