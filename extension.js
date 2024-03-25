@@ -131,23 +131,24 @@ class  Extension
      */
     async APIGet(url,additionalInfo=null)
     {
+        const logId=((additionalInfo!=null)&&(additionalInfo.logId!=undefined))?additionalInfo.logId:'';
         try 
         {
             this.start_profile('api'+url);        
-            if (this.debugAPICall) console.log('API Get',this.chasterBaseUrl+url);
+            if (this.debugAPICall) console.log(logId,'API Get',this.chasterBaseUrl+url);
             const headers = {"Authorization": "Bearer "+this.token};
-            if (this.debugAPICall) console.log({"headers":headers});
+            if (this.debugAPICall) console.log(logId,{"headers":headers});
             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "GET" }); 
-            if (this.debugAPICall) console.log(response.status);
+            if (this.debugAPICall) console.log(logId,response.status);
             const t=this.end_profile('api'+url);
             if (additionalInfo != null) { additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText;}
-            if (this.profileAPICall) console.log('API GET '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
+            if (this.profileAPICall) console.log(logId,'API GET '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
             let data= null;
             try { data=await response.json(); } catch (error) { }
             return(data);
         } catch (error) 
         {
-            console.log('Fetch GET error for URL: ',url,error);
+            console.log(logId,'Fetch GET error for URL: ',url,error);
             return(null);
         }
     }
@@ -162,23 +163,24 @@ class  Extension
      */
     async APIPost(url,body,additionalInfo=null)
     {
+        const logId=((additionalInfo!=null)&&(additionalInfo.logId!=undefined))?additionalInfo.logId:'';
         try 
         {
-            if (this.debugAPICall) console.log('API POST',this.chasterBaseUrl+url,body);
+            if (this.debugAPICall) console.log(logId,'API POST',this.chasterBaseUrl+url,body);
             this.start_profile('api'+url);
             const headers = {"Authorization": "Bearer "+this.token, 'Content-Type': 'application/json'};
-            if (this.debugAPICall) console.log({"headers":headers});
+            if (this.debugAPICall) console.log(logId,{"headers":headers});
             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "POST", "body": JSON.stringify(body) }); 
-            if (this.debugAPICall) console.log(response.status+' '+response.statusText);
+            if (this.debugAPICall) console.log(logId,response.status+' '+response.statusText);
             const t=this.end_profile('api'+url);
-            if (this.profileAPICall) console.log('API POST '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
+            if (this.profileAPICall) console.log(logId,'API POST '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
             if (additionalInfo != null) {  additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText; /*if (this.chance(2)){ additionalInfo.status=505;}*/}
             let data=null;
             try { data=await response.json(); } catch (error) { }
             return(data);
         } catch (error) 
         {
-            console.log('Fetch POST error for URL: ',url,error);
+            console.log(logId,'Fetch POST error for URL: ',url,error);
             return(null);
         }
     }
@@ -193,23 +195,24 @@ class  Extension
      */
      async APIPut(url,body,additionalInfo=null)
      {
+         const logId=((additionalInfo!=null)&&(additionalInfo.logId!=undefined))?additionalInfo.logId:'';        
          try 
          {
             this.start_profile('api'+url);
-             if (this.debugAPICall) console.log('API PUT',this.chasterBaseUrl+url,body);
+             if (this.debugAPICall) console.log(logId,'API PUT',this.chasterBaseUrl+url,body);
              const headers = {"Authorization": "Bearer "+this.token, 'Content-Type': 'application/json'};
-             if (this.debugAPICall) console.log({"headers":headers});
+             if (this.debugAPICall) console.log(logId,{"headers":headers});
              const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "PUT", "body": JSON.stringify(body) }); 
-             if (this.debugAPICall) console.log(response.status+' '+response.statusText);
+             if (this.debugAPICall) console.log(logId,response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
-             if (this.profileAPICall) console.log('API PUT '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
+             if (this.profileAPICall) console.log(logId,'API PUT '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
              if (additionalInfo != null) {  additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText;}
              let data=null;
              try { data=await response.json(); } catch (error) { }
              return(data);
          } catch (error) 
          {
-             console.log('Fetch PUT error for URL: ',url,error);
+             console.log(logId,'Fetch PUT error for URL: ',url,error);
              return(null);
          }
      }
@@ -224,23 +227,24 @@ class  Extension
      */
      async APIPatch(url,body,additionalInfo=null)
      {
+         const logId=((additionalInfo!=null)&&(additionalInfo.logId!=undefined))?additionalInfo.logId:'';
          try 
          {
             this.start_profile('api'+url);
-             if (this.debugAPICall) console.log('API PATCH',this.chasterBaseUrl+url,body);
+             if (this.debugAPICall) console.log(logId,'API PATCH',this.chasterBaseUrl+url,body);
              const headers = {"Authorization": "Bearer "+this.token, 'Content-Type': 'application/json'};
-             if (this.debugAPICall) console.log({"headers":headers});
+             if (this.debugAPICall) console.log(logId,{"headers":headers});
              const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "PATCH", "body": JSON.stringify(body) }); 
-             if (this.debugAPICall) console.log(response.status+' '+response.statusText);
+             if (this.debugAPICall) console.log(logId,response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
-             if (this.profileAPICall) console.log('API PATCH '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
+             if (this.profileAPICall) console.log(logId,'API PATCH '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
              if (additionalInfo != null) {  additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText; /*if (this.chance(3)){ additionalInfo.status=505;}*/}
              let data=null;
              try { data=await response.json(); } catch (error) { }
              return(data);
          } catch (error) 
          {
-             console.log('Fetch PATCH error for URL: ',url,error);
+             console.log(logId,'Fetch PATCH error for URL: ',url,error);
              return(null);
          }
      }
@@ -256,6 +260,7 @@ class  Extension
         let tryidx=0;
         let responsedata=null;
         const apicallId=this.generateRandomIdentifier(8);
+        ai.logId=logId+' '+apicallId
         while (tryidx < retries)
         {
             tryidx++;

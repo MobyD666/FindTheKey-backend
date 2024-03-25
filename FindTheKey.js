@@ -238,7 +238,7 @@ class FindTheKey extends Extension
             if (userData.state == undefined) userData=await this.tryStartGame(session.session.sessionId,userData,config);
             const guessedKey=this.decodeKeyNumber(req.body.guessKeyId);
             const guessOk=(guessedKey==userData.key);
-            if (this.debug) console.log(session.session.sessionId,'Wearer guess is '+((guessOk)?'correct':'incorrect'));
+            if (this.debug) console.log(session.session.sessionId,'Wearer guessed key ',guessedKey,'. Correct key is ',userData.key,'. User guess is '+((guessOk)?'correct':'incorrect'));
             const response={guessResult:null}
             const actionInfo=this.regularActionInfo(session.session);
             if (actionInfo.available)
