@@ -5,7 +5,10 @@ import { config } from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 
+import crypto from 'crypto';
+
 import {StatsSpooler,StatsCounter} from './StatsSpooler.js';
+import {Cache,MemoryCache} from './cache.js';
 
 /**
  * Abstract base class for chaster.app extensions. This class provides basic methods for communicating with Chaster API and some utility methods.
@@ -26,6 +29,9 @@ class  Extension
     {     
        this.dead=false; //** dead==true means that the extension is not supposed to live but more for one shot kind of things */
        this.config=config().parsed; 
+
+       this.mainTokenCache=new MemoryCache();
+       this.basicInfoCache=new MemoryCache();
 
        
         
@@ -103,6 +109,7 @@ class  Extension
         app.get('/'+prefix+'api/test', (req, res) => { this.requestTest(req, res); });
         app.post('/'+prefix+'api/test', (req, res) => { this.requestTest(req, res); });
         app.post('/'+prefix+'api/basicinfo', async (req, res) => { await this.requestBasicInfo(req, res); });
+        app.post('/'+prefix+'api/basicinfocacheid', async (req, res) => { await this.requestBasicInfoCacheId(req, res); });
         app.post('/'+prefix+'api/config', async (req, res) => { await this.requestConfig(req, res); });
         app.post('/'+prefix+'api/configsave', async (req, res) => { await this.requestConfigSave(req, res); });   
         app.post('/'+prefix+'webhook', async (req, res) => { await this.requestWebHook(req, res); });                   
@@ -316,6 +323,7 @@ class  Extension
     async getSessionForMainToken(mainToken)
     {
         const session= await this.APICall(mainToken,'GET','auth/sessions/'+mainToken,null,3,false,[401,404]);
+        if (session?.session?.sessionId != undefined) this.mainTokenCache.store(mainToken,session?.session?.sessionId); else this.mainTokenCache.invalidate(mainToken);
         return (session);
     }
 
@@ -349,6 +357,7 @@ class  Extension
      */
     async getSession(sessionID)
     {
+        this.basicInfoCache.invalidate(sessionID);
         const session= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
         return (session);
     }    
@@ -372,6 +381,7 @@ class  Extension
      */
     async storeSessionMetaData(sessionID,metaData)
     {
+        this.basicInfoCache.invalidate(sessionID);
         const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}},3,true,[401,404]);
         //const rv= await this.APIPatch('sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}});
         return (rv);
@@ -385,6 +395,7 @@ class  Extension
      */
     async storeSessionConfig(sessionID,config)
     {
+        this.basicInfoCache.invalidate(sessionID);
         const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"config":config},3,true,[401,404]);
         return (rv);
     }     
@@ -408,6 +419,7 @@ class  Extension
      */
     async submitRegularAction(sessionID,payload)
     {
+        this.basicInfoCache.invalidate(sessionID);
         let ai={"status":0};
         const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/regular-actions',{"payload":payload},3,true,[401,404,422],ai);
         return (ai.status==201);  
@@ -459,6 +471,7 @@ class  Extension
      */
     async lockAction(sessionID,actionData)
     {
+        this.basicInfoCache.invalidate(sessionID);
         const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/action',actionData,3,true,[401,404]);
         return(rv);
     }
@@ -528,6 +541,7 @@ class  Extension
      */
     async setReasonsPreventingUnlocking(sessionID,reasons)
     {
+        this.basicInfoCache.invalidate(sessionID);
         let metaData= await this.getSessionMetaData(sessionID);
         if (reasons=="null")
         {
@@ -553,6 +567,7 @@ class  Extension
     */
     async customLogMessage(sessionID,role,title,description,color,icon)
     {
+        this.basicInfoCache.invalidate(sessionID);
         if (role==="wearer") role="user";
         const log=
          {
@@ -684,7 +699,23 @@ class  Extension
         return result;
     }
 
+
     
+    async requestBasicInfoCacheId(req, res)
+    {
+        try
+        {
+            const sessionId=this.mainTokenCache.get(req.body.mainToken);
+            if (sessionId==null) return res.status(200).send(JSON.stringify({cacheId:null}));
+            const cachedValue=this.basicInfoCache.get(sessionId);
+            return res.status(200).send(JSON.stringify({cacheId:cachedValue}));
+        }
+        catch (err)
+        {
+            console.log(err);
+            return res.status(501).send('Internal server error');
+        }
+    }
 
     /**
      * Returns the basic info about the session 
@@ -703,14 +734,14 @@ class  Extension
             }
             else
             {
-                //console.log(session);
-                console.log(session.session.sessionId,'Mode:',session.session.mode,'Regularity:',session.session.regularity,'nbActionsRemaining:',session.session.nbActionsRemaining,'nextActionDate',session.session.nextActionDate);
-                const actionInfo=this.regularActionInfo(session.session);
-                //const actions=await this.getRegularActions(session.session.sessionId);
-                let avatar=session?.session?.lock?.user?.avatarUrl;
-                let trusted=session?.session?.lock?.trusted;
-                let keyholder=session?.session?.lock?.keyholder?.username;
-                const basicInfo=await this.processBasicInfo(session,{"valid":false,"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:actionInfo.nextActionIn,actionsRemaining:actionInfo.actionsRemaining,mode:actionInfo.mode,regularity:actionInfo.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
+                const basicInfo=await this.processBasicInfo(session);
+                const cacheId=this.hashSession(session);
+                //console.log('nextActionIn',basicInfo.nextActionIn,typeof( basicInfo.nextActionIn));
+                let timeout=(basicInfo.nextActionIn>0)?basicInfo.nextActionIn:( (basicInfo.mode=="cumulative")?basicInfo.regularity:null );
+                timeout = Math.min(timeout,600); //limit timeout to 5 minutes
+                this.basicInfoCache.store(session.session.sessionId,cacheId,timeout );
+                basicInfo.cacheId=cacheId;
+
                 return res.status(200).send(JSON.stringify(basicInfo));
             }
         
@@ -725,8 +756,17 @@ class  Extension
     /**
      *  To be able to modify the basicinfo in the child extension
      */
-    async processBasicInfo(session,bi)
+    async processBasicInfo(session)
     {
+
+        //console.log(session.session.sessionId,'Mode:',session.session.mode,'Regularity:',session.session.regularity,'nbActionsRemaining:',session.session.nbActionsRemaining,'nextActionDate',session.session.nextActionDate);
+        const actionInfo=this.regularActionInfo(session.session);
+        //const actions=await this.getRegularActions(session.session.sessionId);
+        let avatar=session?.session?.lock?.user?.avatarUrl;
+        let trusted=session?.session?.lock?.trusted;
+        let keyholder=session?.session?.lock?.keyholder?.username;
+        const bi={"valid":true,"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:actionInfo.nextActionIn,actionsRemaining:actionInfo.actionsRemaining,mode:actionInfo.mode,regularity:actionInfo.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder};
+
         return(bi);
     }
 
@@ -917,6 +957,32 @@ class  Extension
             if (this.debug) console.log('Stats saved on shutdown.');
         }
         process.exit(0);
+    }
+
+    hashSession(session)
+    {
+        let hashData={};
+        //console.log('Hashing session',session);
+        ['config','data','metadata','mode','regularity','updatedAt'].forEach(k=>hashData[k]=session?.session[k]);
+        ['status','trusted','canBeUnlocked','isFrozen','displayRemainingTime','limitLockTime','updatedAt','hideTimeLogs','isAllowedToViewTime'].forEach(k=>hashData[k]=session?.session?.lock[k]);
+        const actionInfo=this.regularActionInfo(session.session);
+        ['available','actionsRemaining'].forEach(k=>hashData[k]=actionInfo[k]);
+        return(this.hash(hashData))
+    }
+
+
+    hash (data)
+    {
+        // Create a hash object
+        const hash = crypto.createHash('sha1');
+
+        // Update the hash object with the input data
+        hash.update(JSON.stringify(data));
+
+        // Calculate the hash digest (result)
+        const hashDigest = hash.digest('hex'); // 'hex' encoding outputs the digest as a hexadecimal string
+
+        return(hashDigest);
     }
       
    

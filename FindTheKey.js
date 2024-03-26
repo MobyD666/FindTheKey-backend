@@ -168,13 +168,15 @@ class FindTheKey extends Extension
         
     }
 
-    async processBasicInfo(session,bi)
+    async processBasicInfo(session)
     {
         //let userData=await this.getUserData(session.session.sessionId);
+        let bi=await super.processBasicInfo(session);
+        //console.log('medi bi',bi);
         let userData=session.session.data;
         if (session.role=="keyholder") 
         {
-            if (this.debug) console.log(session.session.sessionId,'Adding correct key info',userData.key);
+            //if (this.debug) console.log(session.session.sessionId,'Adding correct key info',userData.key);
             bi.key=this.encodeKeyNumber(userData.key);
         }
         let localConfig=this.sanitizeConfig(bi.config,userData);
@@ -184,7 +186,8 @@ class FindTheKey extends Extension
         if (userData.keysguessedwrong == undefined) userData.keysguessedwrong=0;
         bi.keysguessedwrong=userData.keysguessedwrong;
         bi.keysguessed=userData.keysguessed;
-        if (this.debug) console.log(session.session.sessionId,'Modified basicInfo',bi);        
+        bi.keyHash=this.hash({key:userData.key,otherKeys:userData.otherKeys,keysPresentedDiff:userData.keysPresentedDiff,presented:localConfig.keyspresented});
+        //if (this.debug) console.log(session.session.sessionId,'Modified basicInfo',bi);        
         return (bi);
     }
 
@@ -756,7 +759,7 @@ class FindTheKey extends Extension
                 if (result.available) { result.nextActionIn=0; }
                 else
                 {
-                    if (this.debug) console.log('Recaulculating time till next action ','lastguessed',userData.lastGuessed,typeof userData.lastGuessed);
+                    if (this.debug) console.log('Recalculating time till next action ','lastguessed',userData.lastGuessed,typeof userData.lastGuessed);
                     if ((userData.lastGuessed==undefined) || (userData.lastGuessed==null)) { result.nextActionIn=0; }
                     else
                     {
