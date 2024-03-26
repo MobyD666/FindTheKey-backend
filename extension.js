@@ -695,17 +695,25 @@ class  Extension
         try
         {
         //if (this.debug) console.log(req.body.mainToken);
-        const session = await this.getSessionForMainToken(req.body.mainToken);
-        //console.log(session);
-        console.log(session.session.sessionId,'Mode:',session.session.mode,'Regularity:',session.session.regularity,'nbActionsRemaining:',session.session.nbActionsRemaining,'nextActionDate',session.session.nextActionDate);
-        const actionInfo=this.regularActionInfo(session.session);
-        //const actions=await this.getRegularActions(session.session.sessionId);
-        let avatar=session?.session?.lock?.user?.avatarUrl;
-        let trusted=session?.session?.lock?.trusted;
-        let keyholder=session?.session?.lock?.keyholder?.username;
-        const basicInfo=await this.processBasicInfo(session,{"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:actionInfo.nextActionIn,actionsRemaining:actionInfo.actionsRemaining,mode:actionInfo.mode,regularity:actionInfo.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
-   
-        return res.status(200).send(JSON.stringify(basicInfo));
+            const session = await this.getSessionForMainToken(req.body.mainToken);
+            if (session?.session?.sessionId ==undefined)
+            {
+                const basicInfo={"valid":false}
+                return res.status(200).send(JSON.stringify(basicInfo));
+            }
+            else
+            {
+                //console.log(session);
+                console.log(session.session.sessionId,'Mode:',session.session.mode,'Regularity:',session.session.regularity,'nbActionsRemaining:',session.session.nbActionsRemaining,'nextActionDate',session.session.nextActionDate);
+                const actionInfo=this.regularActionInfo(session.session);
+                //const actions=await this.getRegularActions(session.session.sessionId);
+                let avatar=session?.session?.lock?.user?.avatarUrl;
+                let trusted=session?.session?.lock?.trusted;
+                let keyholder=session?.session?.lock?.keyholder?.username;
+                const basicInfo=await this.processBasicInfo(session,{"valid":false,"role":session.role,"slug":session.session.slug,"config":session.session.config,nextActionIn:actionInfo.nextActionIn,actionsRemaining:actionInfo.actionsRemaining,mode:actionInfo.mode,regularity:actionInfo.regularity,"avatar":avatar,"trusted":trusted,keyholder:keyholder});
+                return res.status(200).send(JSON.stringify(basicInfo));
+            }
+        
         }
         catch (err)
         {
