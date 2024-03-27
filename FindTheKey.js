@@ -186,10 +186,27 @@ class FindTheKey extends Extension
         if (userData.keysguessedwrong == undefined) userData.keysguessedwrong=0;
         bi.keysguessedwrong=userData.keysguessedwrong;
         bi.keysguessed=userData.keysguessed;
-        bi.keyHash=this.hash({key:userData.key,otherKeys:userData.otherKeys,keysPresentedDiff:userData.keysPresentedDiff,presented:localConfig.keyspresented});
+        bi.keyHash=this.hashKeys(userData,localConfig);
         //if (this.debug) console.log(session.session.sessionId,'Modified basicInfo',bi);        
         return (bi);
     }
+
+    hashKeys(userData,localConfig)
+    {
+        return(this.hash({key:userData.key,otherKeys:userData.otherKeys,keysPresentedDiff:userData.keysPresentedDiff,presented:localConfig.keyspresented}));
+    }
+
+    hashSession(session)
+    {
+        const superHash=super.hashSession(session);
+        
+        let userData=session.session.data;
+        let localConfig=this.sanitizeConfig(session.session.config,userData);
+        const keyHash=this.hashKeys(userData,localConfig);
+        //console.log('Hash data child',{super:superHash,keyHash});
+        return this.hash({super:superHash,keyHash})
+    }
+
 
     async getKeyCandidates(req,res)
     {

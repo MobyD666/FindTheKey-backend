@@ -346,6 +346,7 @@ class  Extension
      */
     async storeUserData(sessionID,userData)
     {
+        this.basicInfoCache.invalidate(sessionID);        
         const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"data":userData},3,true,[401,404]);
         return (rv);
     }
@@ -357,7 +358,6 @@ class  Extension
      */
     async getSession(sessionID)
     {
-        this.basicInfoCache.invalidate(sessionID);
         const session= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
         return (session);
     }    
@@ -967,6 +967,9 @@ class  Extension
         ['status','trusted','canBeUnlocked','isFrozen','displayRemainingTime','limitLockTime','updatedAt','hideTimeLogs','isAllowedToViewTime'].forEach(k=>hashData[k]=session?.session?.lock[k]);
         const actionInfo=this.regularActionInfo(session.session);
         ['available','actionsRemaining'].forEach(k=>hashData[k]=actionInfo[k]);
+
+        //console.log('Hash data super',hashData);
+
         return(this.hash(hashData))
     }
 
