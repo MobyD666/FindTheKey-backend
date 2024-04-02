@@ -288,7 +288,7 @@ class  Extension
             if (additionalInfo!=null) additionalInfo=ai;
             if ((ai.status >= 200) && (ai.status <299))
             {
-                console.log(logId+' '+apicallId,'API Call for '+url+' succeeded with',ai.status,ai.statustext);
+                console.log(logId+' '+apicallId,'API Call for '+url+' succeeded on try ',tryidx,' with',ai.status,ai.statustext);
                 return (responsedata); 
             }
             else
