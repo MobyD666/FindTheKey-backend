@@ -62,6 +62,7 @@ class FindTheKey extends Extension
 
     setupStats()
     {
+        super.setupStats();
         this.stats.addStat(new StatsCounter('keys_displayed','The total number of keys displayed to the users'));
         this.stats.addStat(new StatsCounter('keys_guessed','The total number of keys guessed by the wearers'));
         this.stats.addStat(new StatsCounter('keys_reset','The total number of key resets midgame'));

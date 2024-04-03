@@ -83,7 +83,8 @@ class  Extension
 
     setupStats()
     {
-        //abstract
+        this.stats.addStat(new StatsCounter('api_call','The total number of calls to the chaster API'));
+        this.stats.addStat(new StatsCounter('api_exhausted','The total number of exhausted calls to the chaster API'));
     }
 
     start_profile(profile)
@@ -289,13 +290,16 @@ class  Extension
             if ((ai.status >= 200) && (ai.status <299))
             {
                 console.log(logId+' '+apicallId,'API Call for '+url+' succeeded on try ',tryidx,' with',ai.status,ai.statustext);
+                this.stats.statsCounterInc('api_call','{url="'+(url.replace(logId,'<id>'))+'",result="success",status="'+ai.status+' '+ai.statustext+'",try="'+tryidx.toString()+'"}');
                 return (responsedata); 
             }
             else
             {
                 console.log(logId+' '+apicallId,'API Call for '+url+' failed with',ai.status,ai.statustext);                
+                this.stats.statsCounterInc('api_call','{url="'+(url.replace(logId,'<id>'))+'",result="failed",status="'+ai.status+' '+ai.statustext+'",try="'+tryidx.toString()+'"}');
                 if (unrecoverableErrors.includes(ai.status)) 
                 {
+                    this.stats.statsCounterInc('api_call','{url="'+(url.replace(logId,'<id>'))+'",result="unrecoverable",status="'+ai.status+' '+ai.statustext+'",try="'+tryidx.toString()+'"}');
                     if (this.debug) console.log(logId+' '+apicallId,'Unrecoverable error, aborting');
                     return(null);
                 }
@@ -304,10 +308,12 @@ class  Extension
         if (critical)
         {
             if (this.debug) console.log(logId+' '+apicallId,'CRITICAL API Call for '+url+' exhausted all tries');
+            this.stats.statsCounterInc('api_exhausted','{url="'+(url.replace(logId,'<id>'))+'",result="exhausted",critical="true",status="'+ai.status+' '+ai.statustext+'"}');
         }
         else
         {
             if (this.debug) console.log(logId+' '+apicallId,'NONcritical API Call for '+url+' exhausted all tries');
+            this.stats.statsCounterInc('api_exhausted','{url="'+(url.replace(logId,'<id>'))+'",result="exhausted",critical="false",status="'+ai.status+' '+ai.statustext+'"}');
         }
      }
 
