@@ -69,6 +69,9 @@ class FindTheKey extends Extension
         this.stats.addStat(new StatsCounter('keys_changed','The total number of correct keys changed midgame'));
         this.stats.addStat(new StatsCounter('fake_keys_added','The total number of fake keys added midgame'));
         this.stats.addStat(new StatsCounter('fake_keys_removed','The total number of fake keys removed midgame'));        
+        this.stats.addStat(new StatsCounter('game_restart','The total number of game restarts'));                
+        this.stats.addStat(new StatsCounter('pillory','The total number of wearers sent to the pillory'));
+        
     }
 
     register(app,prefix)
@@ -380,11 +383,14 @@ class FindTheKey extends Extension
                         break;  
                     case 'restartgame':
                         {
+                            this.stats.statsCounterInc('game_restart','{reason="action"}');
                             userData=await this.StartGame(sessionId,userData,config);
+                            await this.customLogMessage(sessionId,'extension','Restarted the game','Game has been restarted by action.');
                         }
                         break;                                                    
                     case 'pillory':
                             {
+                                this.stats.statsCounterInc('pillory','{reason="action"}');
                                 userData=await this.pillory(sessionId,action.time,'Find the key');
                             }
                         break;                          
@@ -434,9 +440,11 @@ class FindTheKey extends Extension
             if (this.debug) console.log(session.session.sessionId,'Game restart request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
             if ( ((userData.state == 'finished') && (session.role=="wearer")) || ( (session.role=="keyholder") && (session?.session?.lock?.trusted===true) )  )
             {
+                this.stats.statsCounterInc('game_restart','{reason="'+session.role+'"}');
                 userData=await this.StartGame(session.session.sessionId,userData,session.session.config);
                 const actionData=this.regularActionInfo(session.session);
                 this.burnTries(session.session.sessionId,userData,actionData);
+                if ((session.role=="wearer")) await this.customLogMessage(session.session.sessionId,'user','Wearer restarted the game','Game has been restarted by wearer.');
             }
 
             return res.status(200).send(JSON.stringify({})); 
