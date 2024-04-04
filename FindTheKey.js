@@ -276,8 +276,8 @@ class FindTheKey extends Extension
                 if (guessOk) 
                 {
                     this.stats.statsCounterInc('keys_guessed','{result="correct"}');
-                    await this.processActionList(session.session.sessionId,config.oncorrect,userData,config,guessedKey);
                     userData.state= 'finished';
+                    await this.processActionList(session.session.sessionId,config.oncorrect,userData,config,guessedKey);
                     await this.storeUserData(session.session.sessionId,userData);
                     await this.customLogMessage(session.session.sessionId,'user','Guessed the correct key','The correct key has been guessed by the wearer.');
                 }
@@ -391,7 +391,7 @@ class FindTheKey extends Extension
                     case 'pillory':
                             {
                                 this.stats.statsCounterInc('pillory','{reason="action"}');
-                                userData=await this.pillory(sessionId,action.time,'Find the key');
+                                await this.pillory(sessionId,action.time,'Find the key');
                             }
                         break;                          
                 }
