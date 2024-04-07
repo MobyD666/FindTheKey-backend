@@ -49,6 +49,7 @@ class  Regular
             {
                 const oldTries=this.data.tries;
                 this.data.tries+=diff/this.config.regularity;
+                if (this.config.mode=='non_cumulative') this.data.tries=Math.min(1,this.data.tries);
                 this.data.lastProcessing = now;
                 if (this.debug) console.log(this.debugId,'process ',this.name,'More than regularity passed from last processing','diff secs',diff,'old tries',oldTries,'new tries',this.data.tries);                    
             }
