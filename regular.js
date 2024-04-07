@@ -10,6 +10,7 @@ class  Regular
         this.name = name;
         this.config = config;
         this.debug=true;
+        this.debugMore=false;
         this.debugId='';
         this.data={};
     }
@@ -17,7 +18,7 @@ class  Regular
     loadFromUserData(userData)
     {
         const now=Date.now();
-        if (this.debug) console.log(this.debugId,'loadFromUserData ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity);
+        if (this.debugMore) console.log(this.debugId,'loadFromUserData ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity);
         if (userData.regulars != undefined) 
         {
             if (userData.regulars[this.name] != undefined) 
@@ -58,7 +59,7 @@ class  Regular
     storeToUserData(userData)
     {
         const now=Date.now();
-        if (this.debug) console.log(this.debugId,'storeToUserData ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity, 'Last Processing: ',this?.data?.lastProcessing,'Now:',now,'Diff milisecs (from processing):',(now-this?.data?.lastProcessing),'tries',this.data.tries);
+        if (this.debugMore) console.log(this.debugId,'storeToUserData ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity, 'Last Processing: ',this?.data?.lastProcessing,'Now:',now,'Diff milisecs (from processing):',(now-this?.data?.lastProcessing),'tries',this.data.tries);
         if (userData.regulars == undefined)  userData.regulars = {};
         if (userData.regulars[this.name] == undefined)  userData.regulars[this.name] = {config:this.config,data:{}};
         userData.regulars[this.name].data = this.data;
@@ -78,7 +79,7 @@ class  Regular
         }
 
       
-        if (this.debug) console.log(this.debugId,'remainingCount ',result);
+        if (this.debug) console.log(this.debugId,this.name,'remainingCount ',result,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity);
         return (result);
     }
 
@@ -102,7 +103,7 @@ class  Regular
     {
         let result=false;
         const now=Date.now();
-        if (this.debug) console.log(this.debugId,'tryAction ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity, 'Last Processing: ',this?.data?.lastProcessing,'Now:',now,'Diff milisecs (from processing):',(now-this?.data?.lastProcessing),'tries',this.data.tries);
+        if (this.debugMore) console.log(this.debugId,'tryAction ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity, 'Last Processing: ',this?.data?.lastProcessing,'Now:',now,'Diff milisecs (from processing):',(now-this?.data?.lastProcessing),'tries',this.data.tries);
         if (this.checkAction(now))
         {
             result = this.doAction(now);
@@ -132,7 +133,7 @@ class  Regular
     doAction(now)
     {
         let result=false;
-        if (this.debug) console.log(this.debugId,'doAction ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity, 'Last Processing: ',this?.data?.lastProcessing,'Now:',now,'Diff milisecs (from processing):',(now-this?.data?.lastProcessing),'tries',this.data.tries);
+        if (this.debugMore) console.log(this.debugId,'doAction ',this.name,'Mode: ',this?.config?.mode,' Regularity: ',this.config?.regularity, 'Last Processing: ',this?.data?.lastProcessing,'Now:',now,'Diff milisecs (from processing):',(now-this?.data?.lastProcessing),'tries',this.data.tries);
         this.data.tries -= 1;
         this.data.lastAction = now;
         result=true;
