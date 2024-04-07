@@ -9,6 +9,7 @@ import crypto from 'crypto';
 
 import {StatsSpooler,StatsCounter} from './StatsSpooler.js';
 import {Cache,MemoryCache} from './cache.js';
+import { Regular } from './regular.js';
 
 /**
  * Abstract base class for chaster.app extensions. This class provides basic methods for communicating with Chaster API and some utility methods.
@@ -32,8 +33,6 @@ class  Extension
 
        this.mainTokenCache=new MemoryCache();
        this.basicInfoCache=new MemoryCache();
-
-       
         
        this.debug = this.isTrue(this.config.DEBUG) || (this.config.NODE_ENV === 'development'); 
        this.debugAPICall = this.isTrue(this.config.DEBUGAPI) || (this.config.NODE_ENV === 'development'); 
@@ -827,6 +826,19 @@ class  Extension
     onBeforeConfigSave(config)
     {
         return(config);
+    }
+
+    async tryRegular(name,config,sessionId,userData)
+    {
+        let result=false;
+        let regular=new Regular(name,config);
+        regular.debugId=sessionId;
+        regular.debug=this.debug;
+        userData=regular.loadFromUserData(userData);
+        if (regular.tryAction()) result=true;
+        userData=regular.storeToUserData(userData);
+        await this.storeUserData(sessionId,userData);
+        return ({result:result,userData:userData});
     }
 
    

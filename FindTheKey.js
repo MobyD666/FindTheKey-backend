@@ -69,6 +69,8 @@ class FindTheKey extends Extension
         this.stats.addStat(new StatsCounter('keys_changed','The total number of correct keys changed midgame'));
         this.stats.addStat(new StatsCounter('fake_keys_added','The total number of fake keys added midgame'));
         this.stats.addStat(new StatsCounter('fake_keys_removed','The total number of fake keys removed midgame'));        
+        this.stats.addStat(new StatsCounter('fake_keys_add_action','The total number of add fake keys actions'));
+        this.stats.addStat(new StatsCounter('fake_keys_remove_action','The total number of remove fake keys actions'));                
         this.stats.addStat(new StatsCounter('game_restart','The total number of game restarts'));                
         this.stats.addStat(new StatsCounter('pillory','The total number of wearers sent to the pillory'));
         
@@ -122,10 +124,10 @@ class FindTheKey extends Extension
         return keyNumber;
     }
 
-    resetOrSetKeys(userData)
+    resetOrSetKeys(userData,resetFakeCount=true)
     {
         userData.otherKeys=[];
-        userData.keysPresentedDiff=0;
+        if (resetFakeCount) userData.keysPresentedDiff=0;
         userData=this.setNewKey(userData);
     }
 
@@ -338,7 +340,7 @@ class FindTheKey extends Extension
                         {
                             if (this.chance(action.number))
                             {
-                                this.resetOrSetKeys(userData); 
+                                this.resetOrSetKeys(userData,false); 
                                 this.stats.statsCounterInc('keys_reset','{reason="wrongguess"}');
                             }
                             await this.storeUserData(sessionId,userData);
@@ -360,9 +362,11 @@ class FindTheKey extends Extension
                         break;
                     case 'removefakekeys':
                             await this.setKeysPresentedDiffInc(sessionId,userData,config,-1*action.number,true);
+                            this.stats.statsCounterInc('fake_keys_remove_action','{reason="action"}');
                         break;
                     case 'addfakekeys':
                             await this.setKeysPresentedDiffInc(sessionId,userData,config,action.number,true);
+                            this.stats.statsCounterInc('fake_keys_add_action','{reason="action"}');
                         break;
                     case 'change': 
                         {
@@ -390,8 +394,19 @@ class FindTheKey extends Extension
                         break;                                                    
                     case 'pillory':
                             {
-                                this.stats.statsCounterInc('pillory','{reason="action"}');
-                                await this.pillory(sessionId,action.time,'Find the key');
+                                const reg=await this.tryRegular('pillory.action',{mode:'non_cumulative',regularity:action.time,waitfirst:true},sessionId,userData);
+                                if (reg.userData != undefined ) userData=reg.userData;
+                                if (this.debug) console.log(sessionId,'Pillory action cooldown available',reg.result);
+                                if (reg.result)
+                                {
+                                    this.stats.statsCounterInc('pillory','{reason="action"}');
+                                    await this.pillory(sessionId,action.time,'Find the key');
+                                }
+                                else
+                                {
+                                    this.stats.statsCounterInc('pillory','{reason="cooldown_blocked"}');
+                                    
+                                }
                             }
                         break;                          
                 }
@@ -547,6 +562,7 @@ class FindTheKey extends Extension
                     {
                         if (addCount>0) this.stats.statsCounterInc('fake_keys_added','{reason="keyholder",message="silent"}',addCount);
                         if (addCount<0) this.stats.statsCounterInc('fake_keys_removed','{reason="keyholder",message="silent"}',-1-addCount);
+                        this.stats.statsCounterInc((addCount>0)?'fake_keys_add_action':'fake_keys_remove_action','{reason="keyholder",message="silent"}');
                     }
                     else
                     {
@@ -554,7 +570,12 @@ class FindTheKey extends Extension
                         if (addCount<0) await this.customLogMessage(session.session.sessionId,session.role,'Removed fake keys','Removed '+(-1*addCount)+' fake key'+((addCount<-1)?'s':'')+'.');                        
                         if (addCount>0) this.stats.statsCounterInc('fake_keys_added','{reason="keyholder",message="logged"}',addCount);
                         if (addCount<0) this.stats.statsCounterInc('fake_keys_removed','{reason="keyholder",message="logged"}',-1-addCount);
+                        this.stats.statsCounterInc((addCount>0)?'fake_keys_add_action':'fake_keys_remove_action','{reason="keyholder",message="logged"}');
                     }
+                }
+                else
+                {
+                    this.stats.statsCounterInc((addCount>0)?'fake_keys_add_action':'fake_keys_remove_action','{reason="wearer"}');
                 }
 
 
