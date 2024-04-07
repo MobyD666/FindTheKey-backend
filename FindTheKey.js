@@ -394,7 +394,7 @@ class FindTheKey extends Extension
                         break;                                                    
                     case 'pillory':
                             {
-                                const reg=await this.tryRegular('pillory.action',{mode:'non_cumulative',regularity:action.time,waitfirst:true},sessionId,userData);
+                                const reg=await this.tryRegular('pillory.action',{mode:'non_cumulative',regularity:action.time,waitfirst:false},sessionId,userData);
                                 if (reg.userData != undefined ) userData=reg.userData;
                                 if (this.debug) console.log(sessionId,'Pillory action cooldown available',reg.result);
                                 if (reg.result)
