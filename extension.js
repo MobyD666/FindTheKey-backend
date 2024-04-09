@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import {StatsSpooler,StatsCounter} from './StatsSpooler.js';
 import {Cache,MemoryCache} from './cache.js';
 import { Regular } from './regular.js';
+import {Mutex} from 'async-mutex';
 
 /**
  * Abstract base class for chaster.app extensions. This class provides basic methods for communicating with Chaster API and some utility methods.
@@ -39,6 +40,7 @@ class  Extension
        this.profileAPICall = this.isTrue(this.config.PROFILEAPI) || (this.config.NODE_ENV === 'development'); 
        this.debugWebHooks = this.isTrue(this.config.DEBUGWEBHOOKS) || (this.config.NODE_ENV === 'development'); 
        this.debugNew = this.isTrue(this.config.DEBUGNEW) || (this.config.NODE_ENV === 'development'); 
+       this.debugMutex = this.isTrue(this.config.DEBUGMUTEX) || (this.config.NODE_ENV === 'development'); 
        this.chasterBaseUrl = this.config.CHASTERURL ||  'https://api.chaster.app/api/extensions/'
        this.statsFilename = this.config.STATSFILENAME ||  null;
        if (this.config.DEAD != undefined) this.dead=this.isTrue(this.config.DEAD);
@@ -46,6 +48,7 @@ class  Extension
        this.slug = '';
        this.webhooks = {};
        this.profiles={};
+       this.mutexes={};
 
        this.stats= new StatsSpooler(config);
        this.setupStats();
@@ -84,6 +87,7 @@ class  Extension
     {
         this.stats.addStat(new StatsCounter('api_call','The total number of calls to the chaster API'));
         this.stats.addStat(new StatsCounter('api_exhausted','The total number of exhausted calls to the chaster API'));
+        this.stats.addStat(new StatsCounter('cs_wait','The total number of critical section waits'));
     }
 
     start_profile(profile)
@@ -95,6 +99,50 @@ class  Extension
     {
         return(Date.now()-this.profiles[profile]);
     }
+
+    /**
+     * Ensure named critical section. If the names CS is being used, wait until it has been released before returning.
+     * @param {*} name name of the critical section
+     * @param {null} [waitHandler=null]  optional handler that will be called when the critical section has  been waiting for more than few miliseconds.
+     * @returns  release handler to release the critical section. Failure to call this function will result in blocked CS
+     */
+    async ensureCS(name, waitHandler=null)
+    {
+        if (this.debugMutex) console.log(name,'ensureCS entering');
+        if (name == undefined) return ( () => {} );
+        if (this.mutexes[name] == undefined) 
+        {
+            if (this.debugMutex) console.log(name,'creating mutex');
+            this.mutexes[name]=new Mutex();
+        }
+        const profilename=name+'-'+this.generateRandomIdentifier(8);
+        this.start_profile(profilename);
+        const release = await this.mutexes[name].acquire();
+        const cswait=this.end_profile(profilename);
+        if (this.debugMutex) console.log(name,'ensureCS wait ms',cswait);
+        if (cswait >100)
+        {
+            if (this.debugMutex) console.log(name,'critical section release wait ',cswait,'ms');
+            this.stats.statsCounterInc('cs_wait','{time="'+((Math.floor(cswait/500)*500).toString().padStart(5,'0'))+'"}');
+            if (waitHandler != null) await waitHandler();
+        }
+        else
+        {
+            this.stats.statsCounterInc('cs_wait','{time="nowait"}');
+        }
+        if (this.debugMutex) console.log(name,'ensureCS leaving');
+        return (release);
+    }
+
+    /**
+     * Release the named critical section. Use this as an alternative to calling the function returned by ensureCS
+     * @param {*} name 
+     */
+    releaseCS(name)
+    {
+        if (this.mutexes[name] != undefined) this.mutexes[name].release();
+    }
+
 
     /**
      * Register your API endpoints
@@ -589,6 +637,7 @@ class  Extension
     /**
     * Find all sessions for extensionSlug
     * @param extensionSlug Slug of the extensin to search for
+    * @param searchCount Number of sessions to download at once (default 15)
     * @retuns Object with sessions
     * 
     * Example:
@@ -621,12 +670,12 @@ class  Extension
     *   ]
     * }
     */
-    async findAllSessions(extensionSlug)
+    async findAllSessions(extensionSlug,searchCount=15)
     {
         let sessions=await this.searchSessions(extensionSlug);
         while (sessions.hasMore)
         {
-            const sessionsNext=await this.searchSessions(extensionSlug,15,sessions.results[sessions.results.length-1].paginationId);
+            const sessionsNext=await this.searchSessions(extensionSlug,searchCount,sessions.results[sessions.results.length-1].paginationId);
             sessions.hasMore=sessionsNext.hasMore;
             sessions.results.push(...sessionsNext.results);
         }
@@ -1004,6 +1053,19 @@ class  Extension
         const hashDigest = hash.digest('hex'); // 'hex' encoding outputs the digest as a hexadecimal string
 
         return(hashDigest);
+    }
+
+    async reloadSession(sessionId,session)
+    {
+        //console.log('session pre',session);
+        const newSession= await this.getSession(sessionId);
+        if (newSession.session != undefined) 
+        { 
+            session.session=newSession.session; 
+            if (this.debug) console.log(sessionId,'session reloaded');
+        }
+        //console.log('session post',session);
+        return (session);
     }
       
    

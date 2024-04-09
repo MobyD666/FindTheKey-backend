@@ -156,6 +156,7 @@ class FindTheKey extends Extension
         userData.keysguessed=0;
         userData.keysguessedwrong=0;
         userData.lastGuessed=null;
+        userData.knownableWrongs={};
         this.resetOrSetKeys(userData);
         config=this.sanitizeConfig(config,userData);        
         if (this.debug) console.log(sessionId,'StartGame','Config',config);        
@@ -171,7 +172,7 @@ class FindTheKey extends Extension
         let userData=await this.getUserData(sessionId);
         if (this.debug) console.log('Got user data for session ' + sessionId,userData);    
         if (userData.state == undefined) userData=await this.StartGame(sessionId,userData,config);
-        
+       
     }
 
     async processBasicInfo(session)
@@ -217,10 +218,12 @@ class FindTheKey extends Extension
     async getKeyCandidates(req,res)
     {
         let response='';
+        let release=null;
         try
         {
             //if (this.debug) console.log('GetKeyCandidates',req.body.mainToken);
-            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
             //console.log('Sessions',session);
             //let userData=await this.getUserData(session.session.sessionId);
             let userData=session.session.data;
@@ -239,12 +242,13 @@ class FindTheKey extends Extension
                 keys=this.shuffleInPlace(keys);
              }
              if (this.debug) console.log(session.session.sessionId,'GetKeyCandidates-after','Modified config keyspresented:',config.keyspresented,'keys.length:',keys.length,'otherkeys.length:',userData.otherKeys.length);
-
+        if (release != null) release();
         if (response==null) return res.status(200).send(JSON.stringify({}));
         return res.status(200).send(JSON.stringify({"keys":keys.map(k=>this.encodeKeyNumber(k))})); 
         }
         catch (err)
         {
+            if (release != null) release();
             console.log(err);
             return res.status(501).send('Internal server error');
         }
@@ -254,10 +258,12 @@ class FindTheKey extends Extension
     async guessKey(req,res)
     {
         let response='';
+        let release=null;
         try
         {
             if (this.debug) console.log('GuessKey',req.body.mainToken,req.body.guessKeyId);
-            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
             let userData=session.session.data;            
             let config=this.sanitizeConfig(session.session.config,userData);
             //let userData=await this.getUserData(session.session.sessionId);
@@ -287,6 +293,9 @@ class FindTheKey extends Extension
                 {
                     userData.keysguessedwrong++;
                     this.stats.statsCounterInc('keys_guessed','{result="incorrect"}');
+                    if (userData.knownableWrongs==undefined) userData.keysguessedwrong={};
+                    if (userData.knownableWrongs[guessedKey]==undefined) userData.knownableWrongs[guessedKey]=0;
+                    userData.knownableWrongs[guessedKey]++;
                     let wrongActions=config.onwrong;
                     if (config.oncustom != undefined)
                     {
@@ -302,12 +311,13 @@ class FindTheKey extends Extension
                 }
              }
 
-
+        if (release != null) release();
         if (response==null) return res.status(200).send(JSON.stringify({}));
         return res.status(200).send(JSON.stringify({"guess":response.guessResult})); 
         }
         catch (err)
         {
+            if (release != null) release();
             console.log(err);
             return res.status(501).send('Internal server error');
         }
@@ -349,12 +359,12 @@ class FindTheKey extends Extension
                         break; 
                     case 'removeguessedkey':
                     case 'replaceguessedkey':
-                            if (this.debugNew) console.log(sessionId,'Removing ('+action.action+') guessed key',guessedKey);
+                            if (this.debug) console.log(sessionId,'Removing ('+action.action+') guessed key',guessedKey);
                             const preCount=userData.otherKeys.length;
-                            if (this.debugNew) console.log(sessionId,'Otherkeys pre removal',userData.otherKeys,'count:',preCount);
+                            if (this.debug) console.log(sessionId,'Otherkeys pre removal',userData.otherKeys,'count:',preCount);
                             userData.otherKeys=userData.otherKeys.filter(k=>k!=guessedKey);
                             const postCount=userData.otherKeys.length;
-                            if (this.debugNew) console.log(sessionId,'Otherkeys post removal',userData.otherKeys,'post count:',postCount,'Diff:',postCount-preCount);
+                            if (this.debug) console.log(sessionId,'Otherkeys post removal',userData.otherKeys,'post count:',postCount,'Diff:',postCount-preCount);
                             userData.otherKeys=this.shuffleInPlace(userData.otherKeys);
                             if ((action.action=='removeguessedkey') && (postCount!=preCount)) await this.setKeysPresentedDiffInc(sessionId,userData,config,postCount-preCount,false);
                             if (this.debug) console.log(sessionId,'afterremovedkey','NewDiff:',userData.keysPresentedDiff);
@@ -446,10 +456,12 @@ class FindTheKey extends Extension
     async restartGame(req,res)
     {
         let response='';
+        let release=null;
         try
         {
             if (this.debug) console.log('RestartGame',req.body.mainToken);
-            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
             if (this.debug) console.log(session.session.sessionId,'Game restart request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
@@ -461,11 +473,12 @@ class FindTheKey extends Extension
                 this.burnTries(session.session.sessionId,userData,actionData);
                 if ((session.role=="wearer")) await this.customLogMessage(session.session.sessionId,'user','Wearer restarted the game','Game has been restarted by wearer.');
             }
-
+            if (release != null) release();
             return res.status(200).send(JSON.stringify({})); 
         }
         catch (err)
         {
+            if (release != null) release();
             console.log(err);
             return res.status(501).send('Internal server error');
         }   
@@ -475,10 +488,12 @@ class FindTheKey extends Extension
     async unblock(req,res)
     {
         let response='';
+        let release=null;
         try
         {
             let result={};
-            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
             if (this.debug) console.log(session.session.sessionId,'unblock request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
@@ -487,11 +502,12 @@ class FindTheKey extends Extension
                 await this.setReasonsPreventingUnlocking(session.session.sessionId,'');
                 await this.customLogMessage(session.session.sessionId,session.role,'Unlocking unblocked','The keyholder unblocked the lock, allowing it to unlock after timer expires.');
             }
-
+            if (release != null) release();
             return res.status(200).send(JSON.stringify(result)); 
         }
         catch (err)
         {
+            if (release != null) release();
             console.log(err);
             return res.status(501).send('Internal server error');
         }   
@@ -500,10 +516,12 @@ class FindTheKey extends Extension
     async changeKey(req,res)
     {
         let response='';
+        let release=null;
         try
         {
             let result={};
-            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
             let userData=session.session.data;
             //let userData=await this.getUserData(session.session.sessionId);
             if (this.debug) console.log(session.session.sessionId,'Change key request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
@@ -528,11 +546,12 @@ class FindTheKey extends Extension
                     this.stats.statsCounterInc('keys_changed','{reason="keyholder",message="logged"}');
                 }
             }
-
+            if (release != null) release();
             return res.status(200).send(JSON.stringify(result)); 
         }
         catch (err)
         {
+            if (release != null) release();
             console.log(err);
             return res.status(501).send('Internal server error');
         }   
@@ -541,10 +560,12 @@ class FindTheKey extends Extension
     async addFakeKeys(req,res)
     {
         let response='';
+        let release=null;
         try
         {
             let result={};
-            const session = await this.getSessionForMainToken(req.body.mainToken);
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
             let userData=session.session.data;            
             let config=this.sanitizeConfig(session.session.config,userData);
             //let userData=await this.getUserData(session.session.sessionId);
@@ -581,11 +602,12 @@ class FindTheKey extends Extension
 
 
             }
-
+            if (release != null) release();
             return res.status(200).send(JSON.stringify(result)); 
         }
         catch (err)
         {
+            if (release != null) release();
             console.log(err);
             return res.status(501).send('Internal server error');
         }   
@@ -655,6 +677,7 @@ class FindTheKey extends Extension
 
     async processActionLog(data)
     {
+       const release = await this.ensureCS(data?.data?.sessionId);
        try
        { 
         //console.log('Processing action log',data.data);
@@ -669,6 +692,7 @@ class FindTheKey extends Extension
        {
         console.log('Error processing action log',error);
        }
+       release();
     }
 
     async setKeysPresentedDiffInc(sessionId, userData, config,inc,save=true)
@@ -740,7 +764,7 @@ class FindTheKey extends Extension
             //const sessions = await  this.findAllSessions(this.slug);
             let sessions=undefined;
             if (cnt%5==0)
-               sessions = await  this.findAllSessions(this.slug);
+               sessions = await  this.findAllSessions(this.slug,50);
             else
                sessions = await  this.searchSessions(this.slug);
             if ((sessions != undefined) && (sessions.count != undefined))
