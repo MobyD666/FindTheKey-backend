@@ -43,12 +43,15 @@ class  Extension
        this.debugMutex = this.isTrue(this.config.DEBUGMUTEX) || (this.config.NODE_ENV === 'development'); 
        this.chasterBaseUrl = this.config.CHASTERURL ||  'https://api.chaster.app/api/extensions/'
        this.statsFilename = this.config.STATSFILENAME ||  null;
+       this.delayedEventsFilename = this.config.DELAYEDEVENTSFILENAME ||  null;
        if (this.config.DEAD != undefined) this.dead=this.isTrue(this.config.DEAD);
        this.name = 'abstractExtension';
        this.slug = '';
        this.webhooks = {};
        this.profiles={};
        this.mutexes={};
+
+       this.delayedEvents=[];
 
        this.stats= new StatsSpooler(config);
        this.setupStats();
@@ -57,6 +60,12 @@ class  Extension
        {
         this.stats.loadStats(this.statsFilename);
         setInterval(() => this.stats.saveStats(this.statsFilename), 60000); // Save every 60 seconds
+       }
+
+       if (this.delayedEventsFilename != null)
+       {
+         this.loadDelayedEvents();
+         setInterval(async () => await this.processDelayedEvents(), 15000); // Process every 15 seconds
        }
 
        process.on('SIGINT', () => this.shutdown());
@@ -143,6 +152,53 @@ class  Extension
         if (this.mutexes[name] != undefined) this.mutexes[name].release();
     }
 
+    loadDelayedEvents()
+    {
+        try 
+        {
+          if (fs.existsSync(this.delayedEventsFilename)) // Check if file exists
+          {
+            const rawData = fs.readFileSync(this.delayedEventsFilename); // Read data synchronously
+            const data = JSON.parse(rawData); // Parse and load data
+            this.delayedEvents=data;
+          }
+        } catch (error) 
+        {
+          console.error('Failed to load delayed events:', error);
+        }
+    }
+
+    saveDelayedEvents() 
+    {
+        let data = this.delayedEvents; 
+        try 
+        {
+          fs.writeFileSync(this.delayedEventsFilename, JSON.stringify(data)); // Save data synchronously
+          //console.log('Data saved successfully.');
+        } catch (error) 
+        {
+          console.error('Failed to delayed events:', error);
+        }
+    }
+
+    async processDelayedEvents()
+    {
+        let newDelayedEvents = [];
+        let actualDelayedEvents = [];
+        const now=Date.now();
+        this.delayedEvents.forEach( de => { if (de.time<=now) actualDelayedEvents.push(de); else newDelayedEvents.push(de); } );
+        actualDelayedEvents.sort( (a,b) => b.time-a.time);
+        actualDelayedEvents.forEach(de=> setTimeout( () => { this.processDelayedEvent(de); } ,100) );
+        if (newDelayedEvents.length != this.delayedEvents.lenght ) this.saveDelayedEvents();
+        this.delayedEvents = newDelayedEvents;
+
+    }
+
+    async processDelayedEvent(delayedEvent)
+    {
+
+    }
+
 
     /**
      * Register your API endpoints
@@ -189,11 +245,12 @@ class  Extension
         const logId=((additionalInfo!=null)&&(additionalInfo.logId!=undefined))?additionalInfo.logId:'';
         try 
         {
-            this.start_profile('api'+url);        
-            if (this.debugAPICall) console.log(logId,'API Get',this.chasterBaseUrl+url);
+            this.start_profile('api'+url);    
+            const fullurl=this.chasterBaseUrl+url;            
+            if (this.debugAPICall) console.log(logId,'API Get',fullurl);
             const headers = {"Authorization": "Bearer "+this.token};
             if (this.debugAPICall) console.log(logId,{"headers":headers});
-            const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "GET" }); 
+            const response = await fetch(fullurl,  {"headers": headers, "method": "GET" }); 
             if (this.debugAPICall) console.log(logId,response.status);
             const t=this.end_profile('api'+url);
             if (additionalInfo != null) { additionalInfo.status=response?.status,additionalInfo.statustext=response?.statusText;}
@@ -221,11 +278,12 @@ class  Extension
         const logId=((additionalInfo!=null)&&(additionalInfo.logId!=undefined))?additionalInfo.logId:'';
         try 
         {
-            if (this.debugAPICall) console.log(logId,'API POST',this.chasterBaseUrl+url,body);
+            const fullurl=this.chasterBaseUrl+url;
+            if (this.debugAPICall) console.log(logId,'API POST',fullurl,body);
             this.start_profile('api'+url);
             const headers = {"Authorization": "Bearer "+this.token, 'Content-Type': 'application/json'};
             if (this.debugAPICall) console.log(logId,{"headers":headers});
-            const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "POST", "body": JSON.stringify(body) }); 
+            const response = await fetch(fullurl,  {"headers": headers, "method": "POST", "body": JSON.stringify(body) }); 
             if (this.debugAPICall) console.log(logId,response.status+' '+response.statusText);
             const t=this.end_profile('api'+url);
             if (this.profileAPICall) console.log(logId,'API POST '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
@@ -254,10 +312,11 @@ class  Extension
          try 
          {
             this.start_profile('api'+url);
-             if (this.debugAPICall) console.log(logId,'API PUT',this.chasterBaseUrl+url,body);
+            const fullurl=this.chasterBaseUrl+url;
+             if (this.debugAPICall) console.log(logId,'API PUT',fullurl,body);
              const headers = {"Authorization": "Bearer "+this.token, 'Content-Type': 'application/json'};
              if (this.debugAPICall) console.log(logId,{"headers":headers});
-             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "PUT", "body": JSON.stringify(body) }); 
+             const response = await fetch(fullurl,  {"headers": headers, "method": "PUT", "body": JSON.stringify(body) }); 
              if (this.debugAPICall) console.log(logId,response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
              if (this.profileAPICall) console.log(logId,'API PUT '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
@@ -286,10 +345,11 @@ class  Extension
          try 
          {
             this.start_profile('api'+url);
-             if (this.debugAPICall) console.log(logId,'API PATCH',this.chasterBaseUrl+url,body);
+            const fullurl=this.chasterBaseUrl+url;
+             if (this.debugAPICall) console.log(logId,'API PATCH',fullurl,body);
              const headers = {"Authorization": "Bearer "+this.token, 'Content-Type': 'application/json'};
              if (this.debugAPICall) console.log(logId,{"headers":headers});
-             const response = await fetch(this.chasterBaseUrl+url,  {"headers": headers, "method": "PATCH", "body": JSON.stringify(body) }); 
+             const response = await fetch(fullurl,  {"headers": headers, "method": "PATCH", "body": JSON.stringify(body) }); 
              if (this.debugAPICall) console.log(logId,response.status+' '+response.statusText);
              const t=this.end_profile('api'+url);
              if (this.profileAPICall) console.log(logId,'API PATCH '+url+' took '+t.toFixed(3)+'ms','result:',response?.status+' '+response?.statusText);
@@ -634,6 +694,30 @@ class  Extension
            return(rv); 
     }
 
+   /* async lockSettings(lockID,sessionID,settingData)
+    {
+        this.basicInfoCache.invalidate(sessionID);
+        const rv= await this.APICall(sessionID,'POST','locks/'+lockID+'/settings',settingData,3,true,[400,401,403,404],{usePublicAPI:true});
+        return(rv);
+    }
+
+    async setLockTimerVisibility(session,displayRemainingTime=null,hideTimeLogs=null)
+    {
+        const sessionID = session?.session?.sessionId;
+        const lockID=session?.session?.lock?._id;
+        console.log('ses',sessionID);
+        console.log('lockID',lockID);
+        if ((lockID != undefined) && (sessionID != undefined))
+        {
+            const data={"displayRemainingTime": (displayRemainingTime==null)?session?.session?.lock?.displayRemainingTime:displayRemainingTime,"hideTimeLogs": (hideTimeLogs==null)?session?.session?.lock?.hideTimeLogs:hideTimeLogs};
+            const rv=await this.lockSettings(lockID,sessionID,data);
+            return (rv);
+        }
+        return (null);
+
+    }
+    */
+
     /**
     * Find all sessions for extensionSlug
     * @param extensionSlug Slug of the extensin to search for
@@ -760,7 +844,7 @@ class  Extension
         try
         {
             const sessionId=this.mainTokenCache.get(req.body.mainToken);
-            if (sessionId==null) return res.status(200).send(JSON.stringify({cacheId:null}));
+            if (sessionId==null) return res.status(200).send(JSON.stringify({cacheId:null,reason:'nosessionid'}));
             const cachedValue=this.basicInfoCache.get(sessionId);
             return res.status(200).send(JSON.stringify({cacheId:cachedValue}));
         }
@@ -793,6 +877,7 @@ class  Extension
                 //console.log('nextActionIn',basicInfo.nextActionIn,typeof( basicInfo.nextActionIn));
                 let timeout=(basicInfo.nextActionIn>0)?basicInfo.nextActionIn:( (basicInfo.mode=="cumulative")?basicInfo.regularity:null );
                 timeout = Math.min(timeout,600); //limit timeout to 5 minutes
+                timeout = Math.max(timeout,60); //limit timeout to at least 1 minute
                 this.basicInfoCache.store(session.session.sessionId,cacheId,timeout );
                 basicInfo.cacheId=cacheId;
 
@@ -963,6 +1048,19 @@ class  Extension
     }
 
     /**
+     * Generate random percent chance
+     * @param {*} pct pct chance, i.e. 25 => 1/4 chance
+     * @returns true if the random chance was less than pct 
+     */
+    chancePct(pct) 
+    {
+        if ((pct == undefined) || (pct==null)) return false;
+        if (pct <=0) return false;
+        if (pct >=100) return true;
+        return Math.random()*100 <= pct;
+    }
+
+    /**
      * Shuffle array in place
      * @param {*} array 
      * @returns 
@@ -1018,11 +1116,21 @@ class  Extension
 
     shutdown() 
     {
+
+
+        if (this.delayedEventsFilename != null)
+        {
+          if (this.debug) console.log('Delayed events saved on shutdown.');
+          this.saveDelayedEvents();
+        }
+ 
+
         if (this.statsFilename != null) 
         {
             this.stats.saveStats(this.statsFilename);
             if (this.debug) console.log('Stats saved on shutdown.');
         }
+
         process.exit(0);
     }
 

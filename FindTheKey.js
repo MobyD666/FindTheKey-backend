@@ -5,6 +5,7 @@ import CryptoJS from 'crypto-js';
 
 import {StatsSpooler,StatsCounter} from './StatsSpooler.js';
 
+import crypto from 'crypto';
 
 
 // Fixed secret key for AES (you should generate a more secure key)
@@ -25,7 +26,7 @@ class FindTheKey extends Extension
 
         if (config.SLUG != undefined) this.slug = config.SLUG;
 
-
+        this.initUnfairSettings();
         
 
         this.webhooks['extension_session.created']= async (data,req,res) =>  
@@ -55,7 +56,7 @@ class FindTheKey extends Extension
         config.keyspresentedOrig=config.keyspresented; 
         if (userData?.keysPresentedDiff != 0) config.keyspresented += userData?.keysPresentedDiff;
         config.keyspresented=Math.min(config.keyspresented,100);  
-        config.keyspresented=Math.max(config.keyspresented,1);  
+        config.keyspresented=Math.max(config.keyspresented,1); 
       }
       return (config);  
     }
@@ -73,6 +74,7 @@ class FindTheKey extends Extension
         this.stats.addStat(new StatsCounter('fake_keys_remove_action','The total number of remove fake keys actions'));                
         this.stats.addStat(new StatsCounter('game_restart','The total number of game restarts'));                
         this.stats.addStat(new StatsCounter('pillory','The total number of wearers sent to the pillory'));
+        this.stats.addStat(new StatsCounter('unfair_events_generate','Unfair events generation counters'));
         
     }
 
@@ -86,18 +88,54 @@ class FindTheKey extends Extension
         app.post('/'+prefix+'api/guesskey',  async (req, res) => { await this.guessKey(req, res); });                
         app.post('/'+prefix+'api/restartgame',  async (req, res) => { await this.restartGame(req, res); });
         app.post('/'+prefix+'api/changekey',  async (req, res) => { await this.changeKey(req, res); });
+        app.post('/'+prefix+'api/setblockers',  async (req, res) => { await this.setBlockers(req, res); });
+        app.post('/'+prefix+'api/setunfairs',  async (req, res) => { await this.setUnfairs(req, res); });
+        app.post('/'+prefix+'api/setunfairsettings',  async (req, res) => { await this.setunfairsettings(req, res); });
         app.post('/'+prefix+'api/addfakekeys',  async (req, res) => { await this.addFakeKeys(req, res); });        
         app.post('/'+prefix+'api/unblock',  async (req, res) => { await this.unblock(req, res); });
+    }
+
+    async processDelayedEvent(delayedEvent)
+    {
+        await super.processDelayedEvent(delayedEvent);
+        switch (delayedEvent.type) 
+        {
+            case 'actions':
+            {
+                if (delayedEvent?.sessionId != undefined)
+                {
+                    if (this.debug) console.log(delayedEvent.sessionId,'processing Delayed Event - actions',delayedEvent.actions);
+                    let release = await this.ensureCS(delayedEvent.sessionId);
+                    try
+                    {
+                        let session=await this.getSession(delayedEvent.sessionId);
+                        //console.log(session);
+                        let userData= session.session.data;
+                        let config= session.session.config;
+                        config=this.sanitizeConfig(config,userData);        
+                        userData= await this.processActionList(delayedEvent.sessionId,delayedEvent.actions,userData,config,delayedEvent.guessedKey);
+                        await this.storeUserData(delayedEvent.sessionId,userData);
+                    }
+                    catch (error)
+                    {
+                        console.log('delayed event error',error);
+                    }
+                    if (release != null) release();
+                }
+            }
+            break;
+        }
+
     }
 
     sendKey(req, res)
     {
         const keyId = req.params.keyId;
-        const decodedKeyNumber = this.decodeKeyNumber(keyId) 
-        if (decodedKeyNumber>0) 
+        const decodedKeySpec = this.decodeKeySpec(keyId);
+        if (decodedKeySpec.key>0) 
         {
             this.stats.statsCounterInc('keys_displayed','');
-            res.sendFile(path.join(process.cwd(), 'public', 'keys' ,  'key'+decodedKeyNumber+'.png'));
+            res.sendFile(path.join(process.cwd(), 'public', 'keys' ,  ((decodedKeySpec.obfuscated)?'obf_':'')+((decodedKeySpec.twin)?'twin_':'')+'key'+decodedKeySpec.key+'.png'));
         }
         else
         {
@@ -106,26 +144,28 @@ class FindTheKey extends Extension
     }
 
 
-    encodeKeyNumber(keyNumber) 
+    encodeKeySpec(keySpec) 
     {
         const nonce = Date.now().toString(); // Using a timestamp as a nonce
-        const combinedString = `${keyNumber}:${nonce}`;
+        const flags = ''+((keySpec.obfuscated)?'O':'')+((keySpec.twin)?'T':'');
+        const combinedString = `${keySpec.key}:${flags}:${nonce}`;
         const encryptedData = CryptoJS.AES.encrypt(combinedString, this.key_key).toString();
         const base64 = Buffer.from(encryptedData).toString('base64');
         return base64;
     }
       
-    decodeKeyNumber(base64String) 
+    decodeKeySpec(base64String) 
     {
         const encryptedString = Buffer.from(base64String, 'base64').toString('utf8');
         const bytes = CryptoJS.AES.decrypt(encryptedString, this.key_key);
         const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
-        const [keyNumber,nonce] = decryptedString.split(':'); // Assuming the nonce doesn't contain ':'
-        return keyNumber;
+        const [keyNumber,flags,nonce] = decryptedString.split(':'); // Assuming the nonce doesn't contain ':'
+        return ({key:keyNumber,obfuscated:flags.includes('O'),twin:flags.includes('T')});
     }
 
     resetOrSetKeys(userData,resetFakeCount=true)
     {
+        userData.knownableWrongs={};
         userData.otherKeys=[];
         if (resetFakeCount) userData.keysPresentedDiff=0;
         userData=this.setNewKey(userData);
@@ -133,6 +173,7 @@ class FindTheKey extends Extension
 
     setNewKey(userData)
     {
+        userData.knownableWrongs={};        
         userData.key=this.random(1,191);        
         return (userData);
     }
@@ -157,10 +198,13 @@ class FindTheKey extends Extension
         userData.keysguessedwrong=0;
         userData.lastGuessed=null;
         userData.knownableWrongs={};
+        userData.unfairs=[];
+        userData.blocks=[];
         this.resetOrSetKeys(userData);
         config=this.sanitizeConfig(config,userData);        
         if (this.debug) console.log(sessionId,'StartGame','Config',config);        
         userData= await this.processActionList(sessionId,config.onstart,userData,config);
+        this.generateUnfairsAndBlocks(sessionId,userData,config,0);
         await this.storeUserData(sessionId,userData);
         if (this.debug) console.log(sessionId,'User data stored',userData);        
         return (userData);
@@ -175,24 +219,190 @@ class FindTheKey extends Extension
        
     }
 
+    initUnfairSettings()
+    {
+        this.unfairSettings=
+        {
+            unabletoguess :              [0,10,15,20,33,50],
+            delayactions  :              [0, 0, 0,15,33,50],
+            hidekeys :                   [0, 0,10,15,33,50],
+            doubleactions :              [0, 0,10,15,33,50],
+            twins :                      [0, 0,10,15,33,50],
+            nocorrectkey :               [0, 0, 0,15,33,50],
+            liecorrect:                  [0, 0, 0, 7,15,20],
+            blocktime:                   [0, 5, 5,10,15,25],
+            blocktime_time:              [5*60, 5*60, 5*60, 5*60,15*60,60*60],
+            delayactions_time :          [0, 10*60, 20*60, 30*60,60*60,90*60],
+            blockverification :          [0, 0, 0,5,10,15],
+            blockjigsaw_complete :       [0, 0, 0,5,10,15],
+            blockshared_link :           [0,5,9,15,20,33],
+            blockturn_wheel_of_fortune:  [0,5,7,10,13,20],
+            blocktask_completed:         [0,5,5,7,10,20],
+            blocktask_failed:            [0,0,0,5,5,10],
+            
+        };
+    }
+
+    getUnfairSetting(sessionId,userData,config,guessNumber,session,nodefaults=false)
+    {
+        let result = {};
+        Object.keys(this.unfairSettings).forEach( (k) => result[k]=null);
+
+        if ((this.isTrue(config?.unfairsenabled)) && (config?.unfairslevel != undefined) && (nodefaults==false))
+        {
+            Object.keys(this.unfairSettings).forEach( (k) =>  { if (this.unfairSettings[k][config.unfairslevel] != undefined) result[k] = this.unfairSettings[k][config.unfairslevel];});
+        }
+
+        if (userData?.unfairsetting!=undefined)
+        {
+            Object.keys(this.unfairSettings).forEach( (k) =>  { if (userData.unfairsetting[k] != undefined) result[k] = userData.unfairsetting[k];});
+        }
+
+        if (this.config) console.log(sessionId,"Calculated Unfair Settings:",result);
+        return (result);
+    }
+
+
+
+    generateUnfairsAndBlocks(sessionId,userData,config,guessNumber,session=null)
+    {
+        if (userData.unfairs == undefined) userData.unfairs=[];
+        if (userData.blocks == undefined) userData.blocks=[];
+        if (this.isTrue(config?.unfairsenabled))
+        {
+            if (this.debug) console.log(sessionId,'Generating unfairs and blocks for guess',guessNumber);
+            this.stats.statsCounterInc('unfair_events_generate','{event="generation_rounds",unfairslevel="'+(config.unfairslevel)+'"}');
+            const chances= this.getUnfairSetting(sessionId,userData,config,guessNumber,session);
+
+            let extensions=[];
+            //console.log('extensons',session?.lock?.extensions);
+            if ((session != null) && (session?.lock?.extensions != undefined)) session.lock.extensions.forEach ( (e) => extensions.push(e.slug));
+            if (this.debug) console.log (sessionId,'Lock extensions detected: ',extensions);
+
+            if (this.chancePct(chances['unabletoguess'])) { userData.unfairs.push({guess:guessNumber,stage:'beforeguess',type:'unabletoguess',level:1}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_unabletoguess",unfairslevel="'+(config.unfairslevel)+'"}'); }
+
+            if (this.chancePct(chances['hidekeys'])) { userData.unfairs.push({guess:guessNumber,stage:'displaycandidates',type:'hidekeys',level:2}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_hidekeys",unfairslevel="'+(config.unfairslevel)+'"}'); } 
+            if (this.chancePct(chances['doubleactions'])) { userData.unfairs.push({guess:guessNumber,stage:'wrongguess',type:'doubleactions',level:2}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_doubleactions",unfairslevel="'+(config.unfairslevel)+'"}'); } 
+            if (this.chancePct(chances['twins'])) { userData.unfairs.push({guess:guessNumber,stage:'displaycandidates',type:'twins',level:2}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_twins",unfairslevel="'+(config.unfairslevel)+'"}'); }
+            if (this.chancePct(chances['nocorrectkey'])) { userData.unfairs.push({guess:guessNumber,stage:'displaycandidates',type:'nocorrectkey',level:3}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_nocorrectkey",unfairslevel="'+(config.unfairslevel)+'"}'); }
+            if (this.chancePct(chances['liecorrect'])) { userData.unfairs.push({guess:guessNumber,stage:'beforeguess',type:'liecorrect',level:4}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_liecorrect",unfairslevel="'+(config.unfairslevel)+'"}'); }            
+            if (this.chancePct(chances['delayactions'])) {  userData.unfairs.push({guess:guessNumber,stage:'correctguess',type:'delayactions',level:3,time:this.random(chances['delayactions_time']*0.5,chances['delayactions_time']*1.5)}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_delayactions",unfairslevel="'+(config.unfairslevel)+'"}'); }            
+
+            if ((extensions.includes('verification-picture')) && (this.chancePct(chances['blockverification']))) { userData.blocks.push({type:'verification'});this.stats.statsCounterInc('unfair_events_generate','{event="generated_verification",unfairslevel="'+(config.unfairslevel)+'"}'); }            
+            if ((extensions.includes('link')) && (this.chancePct(chances['blockshared_link']))) { userData.blocks.push({type:'shared_link'});this.stats.statsCounterInc('unfair_events_generate','{event="generated_shared_link",unfairslevel="'+(config.unfairslevel)+'"}'); }                        
+            if ((extensions.includes('wheel-of-fortune')) && (this.chancePct(chances['blockturn_wheel_of_fortune']))) { userData.blocks.push({type:'turn_wheel_of_fortune'});this.stats.statsCounterInc('unfair_events_generate','{event="generated_turn_wheel_of_fortune",unfairslevel="'+(config.unfairslevel)+'"}'); }                                    
+            if ((extensions.includes('tasks')) && (this.chancePct(chances['blocktask_completed']))) { userData.blocks.push({type:'task_completed'});this.stats.statsCounterInc('unfair_events_generate','{event="generated_task_completed",unfairslevel="'+(config.unfairslevel)+'"}'); }                                                
+            else if ((extensions.includes('tasks')) && (this.chancePct(chances['blocktask_failed']))) { userData.blocks.push({type:'task_failed'});this.stats.statsCounterInc('unfair_events_generate','{event="generated_task_failed",unfairslevel="'+(config.unfairslevel)+'"}'); }                                                            
+            if ((extensions.includes('jigsaw-puzzle')) && (this.chancePct(chances['blockjigsaw_complete']))) { userData.blocks.push({type:'jigsaw_complete'});this.stats.statsCounterInc('unfair_events_generate','{event="generated_jigsaw_complete",unfairslevel="'+(config.unfairslevel)+'"}'); }                                                
+            if (this.chancePct(chances['blocktime'])) { userData.blocks.push({type:'add_time',time:this.random(chances['blocktime_time']*0.5,chances['blocktime_time']*1.5)}); this.stats.statsCounterInc('unfair_events_generate','{event="generated_addtime",unfairslevel="'+(config.unfairslevel)+'"}'); }            
+            
+            
+
+
+            if (config?.unfairslevel>= 1) 
+            {
+                if (guessNumber==0) userData.unfairs.push({guess:guessNumber,stage:'beforeguess',type:'liecorrect',level:1});
+            }
+
+            if (config?.unfairslevel>= 2) 
+            {
+                if (guessNumber==1) userData.unfairs.push({guess:guessNumber,stage:'beforeguess',type:'liecorrect',level:2}); 
+                
+            }
+            if (config?.unfairslevel>= 3) 
+            {
+                if (guessNumber==0) if (this.chancePct(chances['delayactions'])) userData.unfairs.push({guessmin:0,guessmax:99999,stage:'correctguess',type:'delayactions',level:3,time:this.random(chances['delayactions_time']*0.5,chances['delayactions_time']*1.5)});
+            }
+
+            //if (this.debug) console.log(sessionId,'Generated unfairs for guess. All unfairs:',userData.unfairs);
+        }
+        else
+            if (this.debug) console.log(sessionId,'Unfairs disabled - no unfairs generated');
+        return (userData);
+    }
+
+    async processUnfairs(sessionId,userData,config,guessNumber,result,details)
+    {
+        if (userData.unfairs == undefined) userData.unfairs=[];
+        if (this.isTrue(config?.unfairsenabled))
+        {
+            const unfairs=userData.unfairs.filter (u =>  ( (u.guess==guessNumber) || (u.guessmin != undefined) && (u.guessmax != undefined) && (u.guessmin<=guessNumber) && (u.guessmax>=guessNumber)  ) && ( (u.level<=config?.unfairslevel) || (u.source=="keyholder")  ) );
+            if (unfairs.length>0) 
+            {
+                if (this.debug) console.log(sessionId,'Processing unfairs for guess',guessNumber,'Unfair level',config?.unfairslevel,'Unfairs:',unfairs);
+                for (var i=0; i<unfairs.length; i++)
+                    {
+                        const unfair=unfairs[i];
+                        if (unfair.type=='hidekeys') result.push('hidekeys');
+                        if (unfair.type=='twins') result.push('twins');
+                        if (unfair.type=='nocorrectkey') result.push('nocorrectkey');
+                        if (unfair.type=='unabletoguess') result.push('unabletoguess');
+                        if (unfair.type=='liecorrect') result.push('liecorrect');
+                        if (unfair.type=='doubleactions') result.push('doubleactions');
+                        if (unfair.type=='delayactions') { result.push('delayactions'); details['delayactions']=unfair;}
+                        
+                    }
+                    if (this.debug) console.log(sessionId,'Unfair result',result);    
+            }
+            else
+            {
+                if (this.debug) console.log(sessionId,'Processing unfairs for guess',guessNumber,'Unfair level',config?.unfairslevel,'Unfairs:',[]);
+            }
+
+
+        }
+        return (userData);
+    }
+
+
+    generateSeed(sessionId, guessNumber) 
+    {
+        // Combine the string and number into one string
+        const input = `${sessionId}_${guessNumber}`;
+    
+        // Create a SHA-256 hash of the input
+        const hash = crypto.createHash('sha256').update(input).digest('hex');
+    
+        // Convert the first 8 characters of the hash into a decimal number
+        const seed = parseInt(hash.substring(0, 8), 16);
+    
+        return seed;
+    }
+
     async processBasicInfo(session)
     {
         //let userData=await this.getUserData(session.session.sessionId);
         let bi=await super.processBasicInfo(session);
         //console.log('medi bi',bi);
         let userData=session.session.data;
+        let localConfig=this.sanitizeConfig(bi.config,userData);
         if (session.role=="keyholder") 
         {
             //if (this.debug) console.log(session.session.sessionId,'Adding correct key info',userData.key);
-            bi.key=this.encodeKeyNumber(userData.key);
+            bi.key=this.encodeKeySpec({key:userData.key,twin:false,obfuscated:false});
+            bi.unfairs=userData?.unfairs;
+            let wrongs=[];
+            if (userData?.knownableWrongs != undefined) 
+            {
+                Object.keys(userData.knownableWrongs).forEach(k=>wrongs.push(this.encodeKeySpec({key:k,twin:false,obfuscated:false})));
+            }
+            bi.knownablewrongs=wrongs;
+            bi.blockers=userData.blocks;
+            bi.unfairSettings=
+                {
+                default: this.getUnfairSetting(session.session.sessionId,{},localConfig,userData.keysguessed,session,false),
+                user: this.getUnfairSetting(session.session.sessionId,userData,localConfig,userData.keysguessed,session,true)
+                };
+            
         }
-        let localConfig=this.sanitizeConfig(bi.config,userData);
         bi.gamestate=userData.state;
         bi.keyspresented=localConfig.keyspresented;
+        bi.seed = this.generateSeed(session.session.sessionId,userData.keysguessed);
         if (userData.keysguessed == undefined) userData.keysguessed=0;
         if (userData.keysguessedwrong == undefined) userData.keysguessedwrong=0;
         bi.keysguessedwrong=userData.keysguessedwrong;
         bi.keysguessed=userData.keysguessed;
+        bi.blocks=this.sanitizeBlocksForWearer(userData.blocks);
         bi.keyHash=this.hashKeys(userData,localConfig);
         //if (this.debug) console.log(session.session.sessionId,'Modified basicInfo',bi);        
         return (bi);
@@ -200,7 +410,7 @@ class FindTheKey extends Extension
 
     hashKeys(userData,localConfig)
     {
-        return(this.hash({key:userData.key,otherKeys:userData.otherKeys,keysPresentedDiff:userData.keysPresentedDiff,presented:localConfig.keyspresented}));
+        return(this.hash({gamestate:userData.state,key:userData.key,otherKeys:userData.otherKeys,keysPresentedDiff:userData.keysPresentedDiff,presented:localConfig.keyspresented,blocks:userData.blocks,keysguessed:userData.keysguessed}));
     }
 
     hashSession(session)
@@ -212,6 +422,36 @@ class FindTheKey extends Extension
         const keyHash=this.hashKeys(userData,localConfig);
         //console.log('Hash data child',{super:superHash,keyHash});
         return this.hash({super:superHash,keyHash})
+    }
+
+
+    async checkBlocks(sessionId,session,userData,config,blocks)
+    {
+        if (userData.blocks==undefined) userData.blocks = [];
+        userData.blocks.forEach( (b) => 
+        {
+            console.log('Block',b);
+            switch (b.type) {
+                case 'freeze': console.log(session); if (session?.lock?.isFrozen)  blocks.push(b); break;
+            
+                default: blocks.push(b) ; break;
+            }
+        });
+        if (this.debug) console.log (sessionId,'block for lock:',blocks);
+        return (userData);
+    }    
+
+    sanitizeBlocksForWearer(blocks)
+    {
+        if (blocks==undefined) blocks = [];
+        return blocks.map ( (b) =>
+        {
+            switch (b.type) 
+            {
+                case 'add_time': return ({type: 'add_time'}); break;
+                default:  return (b);  break;
+            }
+        });
     }
 
 
@@ -229,22 +469,42 @@ class FindTheKey extends Extension
             let userData=session.session.data;
             let config=this.sanitizeConfig(session.session.config,userData);
             if (userData.state == undefined) userData=await this.tryStartGame(session.session.sessionId,userData,config);
+
+            
             let keys=[];
+            let blocks = [];
             //const actions=await this.getRegularActions(session.session.sessionId);
             const actionInfo=this.regularActionInfo(session.session);
+            let unfairs=[];
+            let unfairDetails={};
             if (actionInfo.available)
-             {
-                
-                keys.push(userData.key);
-                userData=await this.ensureOtherKeys(session.session.sessionId,userData,config.keyspresented);
-                let i=0;
-                while (keys.length<config.keyspresented) keys.push(userData.otherKeys[i++]); 
-                keys=this.shuffleInPlace(keys);
-             }
-             if (this.debug) console.log(session.session.sessionId,'GetKeyCandidates-after','Modified config keyspresented:',config.keyspresented,'keys.length:',keys.length,'otherkeys.length:',userData.otherKeys.length);
+            {
+                userData= await this.processUnfairs(session.session.sessionId,userData,config,userData.keysguessed,unfairs,unfairDetails);                            
+                userData= await this.checkBlocks(session.session.sessionId,session.session,userData,config,blocks);
+                if (blocks.length==0)
+                {
+                    if (!(unfairs.includes('nocorrectkey'))) keys.push({key:userData.key,obfuscated:false,twin:false}); //do not show correct key if nocorrectkey unfair is detected
+                    userData=await this.ensureOtherKeys(session.session.sessionId,userData,config.keyspresented+1);
+                    let i=0;
+                    while (keys.length<config.keyspresented) keys.push({key:userData.otherKeys[i++],obfuscated:false,twin:false}); 
+                    if (unfairs.includes('twins'))  keys.forEach(k=>keys.push({key:k.key,obfuscated:k.obfuscated,twin:true})); //add twins if twins unfair detected, TBD: add actual twin images
+                    keys=this.shuffleInPlace(keys);
+                }
+                else
+                {
+                    //there were blocks
+                }
+            }
+            if (this.debug) console.log(session.session.sessionId,'GetKeyCandidates-after','Modified config keyspresented:',config.keyspresented,'keys.length:',keys.length,'otherkeys.length:',userData.otherKeys.length);
+
+            if (unfairs.includes('hidekeys')) keys = keys.map(k=>{k.obfuscated=true;return(k);}); //hide keys if hidekeys unfair detected, TBD: generate pixelated images
+        
+             
+             
+
         if (release != null) release();
         if (response==null) return res.status(200).send(JSON.stringify({}));
-        return res.status(200).send(JSON.stringify({"keys":keys.map(k=>this.encodeKeyNumber(k))})); 
+        return res.status(200).send(JSON.stringify({"keys":keys.map(k=>this.encodeKeySpec(k)),"blocks":this.sanitizeBlocksForWearer(blocks)})); 
         }
         catch (err)
         {
@@ -268,52 +528,121 @@ class FindTheKey extends Extension
             let config=this.sanitizeConfig(session.session.config,userData);
             //let userData=await this.getUserData(session.session.sessionId);
             if (userData.state == undefined) userData=await this.tryStartGame(session.session.sessionId,userData,config);
-            const guessedKey=this.decodeKeyNumber(req.body.guessKeyId);
-            const guessOk=(guessedKey==userData.key);
+            let unfairs = [];
+            let unfairDetails = {};
+            let blocks = [];
+            if (userData.keysguessed ==undefined) userData.keysguessed=0;
+            if (userData.keysguessedwrong ==undefined) userData.keysguessedwrong=0;            
+            const guessedKeySpec=this.decodeKeySpec(req.body.guessKeyId);
+            const guessedKey=guessedKeySpec.key;
+            let guessOk=(guessedKey==userData.key);
+            const guessNr=userData.keysguessed; 
             if (this.debug) console.log(session.session.sessionId,'Wearer guessed key ',guessedKey,'. Correct key is ',userData.key,'. User guess is '+((guessOk)?'correct':'incorrect'));
-            const response={guessResult:null}
+            const response={guessResult:null,guessProcessed:null};
             const actionInfo=this.regularActionInfo(session.session);
             if (actionInfo.available)
              {
-                const a=await this.submitRegularAction(session.session.sessionId,{'message':'Wearer guessed '+((guessOk)?'correct':'wrong')+' key'});
-                userData.lastGuessed=new Date();
-                if (userData.keysguessed ==undefined) userData.keysguessed=0;
-                if (userData.keysguessedwrong ==undefined) userData.keysguessedwrong=0;
-                userData.keysguessed++;
-                response.guessResult=guessOk;
-                if (guessOk) 
+                userData= await this.checkBlocks(session.session.sessionId,session.session,userData,config,blocks);
+                if (blocks.length > 0)
                 {
-                    this.stats.statsCounterInc('keys_guessed','{result="correct"}');
-                    userData.state= 'finished';
-                    await this.processActionList(session.session.sessionId,config.oncorrect,userData,config,guessedKey);
-                    await this.storeUserData(session.session.sessionId,userData);
-                    await this.customLogMessage(session.session.sessionId,'user','Guessed the correct key','The correct key has been guessed by the wearer.');
+                    //blocks
+                    response.guessProcessed=false;
+                    response.blocks=this.sanitizeBlocksForWearer(blocks);
+
+
                 }
-                else 
+                else
                 {
-                    userData.keysguessedwrong++;
-                    this.stats.statsCounterInc('keys_guessed','{result="incorrect"}');
-                    if (userData.knownableWrongs==undefined) userData.keysguessedwrong={};
-                    if (userData.knownableWrongs[guessedKey]==undefined) userData.knownableWrongs[guessedKey]=0;
-                    userData.knownableWrongs[guessedKey]++;
-                    let wrongActions=config.onwrong;
-                    if (config.oncustom != undefined)
+                    const a=await this.submitRegularAction(session.session.sessionId,{'message':'Wearer guessed '+((guessOk)?'correct':'wrong')+' key'});
+                    userData.lastGuessed=new Date();                
+                    userData.keysguessed++;                
+
+                    userData= await this.processUnfairs(session.session.sessionId,userData,config,guessNr,unfairs,unfairDetails);                            
+                    if (unfairs.includes('unabletoguess'))
                     {
-                        const every=config.oncustom.filter(cust=> (cust.event=='on_guess_every') && (userData.keysguessedwrong>0)  && (cust.detail>0) && ((userData.keysguessedwrong % cust.detail)==0) );
-                        const exact=config.oncustom.filter(cust=> (cust.event=='on_guess_x') && (userData.keysguessedwrong>0)  && (cust.detail>0) && ((userData.keysguessedwrong == cust.detail)) );
-                        console.log(session.session.sessionId,'wrongGuess advanced','every cnt:',every.length,'exact cnt:',exact.length,'keysguessedwrong',userData.keysguessedwrong);
-                        if (exact.length>0) exact.forEach ( e=> wrongActions.push(... e.actions ));
-                        else if (every.length>0) every.forEach ( e=> wrongActions.push(... e.actions ));
+                        if (this.debug) console.log(session.session.sessionId,' unabletoguess unfair activated, ignoring guess');
+                        response.guessProcessed=false;
+                        //should increment the wrong guess counter????
+
+                        userData=this.generateUnfairsAndBlocks(session.session.sessionId,userData,config,userData.keysguessed,session.session);
+
+                        await this.storeUserData(session.session.sessionId,userData);
                     }
-                    await this.processActionList(session.session.sessionId,wrongActions,userData,config,guessedKey);
-                    await this.customLogMessage(session.session.sessionId,'user','Guessed the wrong key','Wearer guessed incorrectly.');
-                    await this.storeUserData(session.session.sessionId,userData);
-                }
+                    else
+                    {
+
+                        response.guessProcessed=true;
+
+                        if ((unfairs.includes('liecorrect')) && (guessOk))  // liecorrect unfair
+                        {
+                            if ((userData.otherKeys.length>0) && (config.keyspresented>1))
+                            {
+                                if (this.debug) console.log(session.session.sessionId,' liecorrect unfair activated, wearer guessed correctly, swapping correct key');  
+                                guessOk=false;                            
+                                const oldcorrectkey=userData.key;
+                                userData.key=userData.otherKeys[0];
+                                userData.otherKeys[0]=oldcorrectkey;
+                            }
+                        }
+
+
+                        response.guessResult=guessOk;
+                        if (guessOk) 
+                        {
+                            this.stats.statsCounterInc('keys_guessed','{result="correct"}');
+                            userData.state= 'finished';
+                            if (unfairs.includes('delayactions'))
+                            {
+                                this.delayedEvents.push({type:'actions',time:(Date.now()+(1000*unfairDetails['delayactions'].time)),sessionId:session.session.sessionId,actions:config.oncorrect,guessedKey:guessedKey});
+                            }
+                            else
+                            {
+                                await this.processActionList(session.session.sessionId,config.oncorrect,userData,config,guessedKey);
+                            }
+                            await this.storeUserData(session.session.sessionId,userData);
+                            await this.customLogMessage(session.session.sessionId,'user','Guessed the correct key','The correct key has been guessed by the wearer.');
+                        }
+                        else 
+                        {
+                            userData.keysguessedwrong++;
+                            this.stats.statsCounterInc('keys_guessed','{result="incorrect"}');
+                            
+                            
+                            if (userData.knownableWrongs==undefined) userData.knownableWrongs={};
+                            if (userData.knownableWrongs[guessedKey]==undefined) userData.knownableWrongs[guessedKey]=0;
+                            const repeatedWrongGuess = (userData.knownableWrongs[guessedKey]>0);
+                            
+                            if (!(unfairs.includes('hidekeys'))) userData.knownableWrongs[guessedKey]++;
+
+                            let wrongActions=config.onwrong;
+                            if (config.oncustom != undefined)
+                            {
+                                const every=config.oncustom.filter(cust=> (cust.event=='on_guess_every') && (userData.keysguessedwrong>0)  && (cust.detail>0) && ((userData.keysguessedwrong % cust.detail)==0) );
+                                const exact=config.oncustom.filter(cust=> (cust.event=='on_guess_x') && (userData.keysguessedwrong>0)  && (cust.detail>0) && ((userData.keysguessedwrong == cust.detail)) );
+                                console.log(session.session.sessionId,'wrongGuess advanced','every cnt:',every.length,'exact cnt:',exact.length,'keysguessedwrong',userData.keysguessedwrong);
+                                if (exact.length>0) exact.forEach ( e=> wrongActions.push(... e.actions ));
+                                else if (every.length>0) every.forEach ( e=> wrongActions.push(... e.actions ));
+                            
+                                if (repeatedWrongGuess)
+                                {
+                                    console.log(session.session.sessionId,'knowable wrong guess');
+                                    const knowablewrong=config.oncustom.filter(cust=> (cust.event=='knowablewrong')  );
+                                    if (knowablewrong.length>0) knowablewrong.forEach ( e=> wrongActions.push(... e.actions ));
+                                }
+                            }
+                            if (unfairs.includes('doubleactions')) wrongActions=this.doubleActions(session.session.sessionId,wrongActions,true);
+                            await this.processActionList(session.session.sessionId,wrongActions,userData,config,guessedKey);
+                            await this.customLogMessage(session.session.sessionId,'user','Guessed the wrong key','Wearer guessed incorrectly.');
+                            this.generateUnfairsAndBlocks(session.session.sessionId,userData,config,userData.keysguessed,session.session);
+                            await this.storeUserData(session.session.sessionId,userData);
+                        }
+                    }
+                 }
              }
 
         if (release != null) release();
         if (response==null) return res.status(200).send(JSON.stringify({}));
-        return res.status(200).send(JSON.stringify({"guess":response.guessResult})); 
+        return res.status(200).send(JSON.stringify({"guess":response.guessResult,"guessprocessed":response.guessProcessed})); 
         }
         catch (err)
         {
@@ -323,6 +652,26 @@ class FindTheKey extends Extension
         }
 
     }  
+
+    doubleActions(sessionId,actions,badonly=false)
+    {
+        if (this.debug) console.log(sessionId,'Doubling action list',actions);
+        actions = actions.map( (a) =>
+            {
+                switch (a.action) 
+                {
+                
+                    case 'removefakekeys': if (! badonly) a.number *= 2;break;
+                    case 'addfakekeys':    a.number *= 2;break;
+                    case 'removetime':     if (! badonly) a.time *=2; break;
+                    case 'addtime':
+                    case 'pillory':        a.time *=2; break;
+                    case 'removeguessedkey':        a.action='replaceguessedkey' ; break;
+                }
+                return a;
+            });
+        return (actions);
+    }
     
     async processActionList(sessionId,actions,userData,config,guessedKey)
     {
@@ -368,6 +717,8 @@ class FindTheKey extends Extension
                             userData.otherKeys=this.shuffleInPlace(userData.otherKeys);
                             if ((action.action=='removeguessedkey') && (postCount!=preCount)) await this.setKeysPresentedDiffInc(sessionId,userData,config,postCount-preCount,false);
                             if (this.debug) console.log(sessionId,'afterremovedkey','NewDiff:',userData.keysPresentedDiff);
+                            if (userData.knownableWrongs==undefined) userData.knownableWrongs={};
+                            userData.knownableWrongs[guessedKey]=0;
                             await this.storeUserData(sessionId,userData);
                         break;
                     case 'removefakekeys':
@@ -513,6 +864,97 @@ class FindTheKey extends Extension
         }   
     }
 
+    
+    async setBlockers(req,res)
+    {
+        let response='';
+        let release=null;
+        try
+        {
+            let result={};
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
+            let userData=session.session.data;
+            //let userData=await this.getUserData(session.session.sessionId);
+            if (this.debug) console.log(session.session.sessionId,'Set blockers request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            const newBlockers=req.body.blockers;
+            if (this.debug) console.log(session.session.sessionId, 'new blockers',newBlockers);
+            if ((session.role=="keyholder") && (session?.session?.lock?.trusted===true))
+            {
+                userData.blocks=newBlockers;
+                await this.storeUserData(session.session.sessionId,userData);
+            }
+            if (release != null) release();
+            return res.status(200).send(JSON.stringify(result)); 
+        }
+        catch (err)
+        {
+            if (release != null) release();
+            console.log(err);
+            return res.status(501).send('Internal server error');
+        }   
+    }
+
+    async setUnfairs(req,res)
+    {
+        let response='';
+        let release=null;
+        try
+        {
+            let result={};
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
+            let userData=session.session.data;
+            //let userData=await this.getUserData(session.session.sessionId);
+            if (this.debug) console.log(session.session.sessionId,'Set unfairs request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            const newUnfairs=req.body.unfairs;
+            if (this.debug) console.log(session.session.sessionId, 'new unfairs',newUnfairs);
+            if ((session.role=="keyholder") && (session?.session?.lock?.trusted===true))
+            {
+                userData.unfairs=newUnfairs.map ( (u) => {u.source='keyholder'; return (u); });                ;
+                await this.storeUserData(session.session.sessionId,userData);
+            }
+            if (release != null) release();
+            return res.status(200).send(JSON.stringify(result)); 
+        }
+        catch (err)
+        {
+            if (release != null) release();
+            console.log(err);
+            return res.status(501).send('Internal server error');
+        }   
+    }
+
+    async setunfairsettings(req,res)
+    {
+        let response='';
+        let release=null;
+        try
+        {
+            let result={};
+            let session = await this.getSessionForMainToken(req.body.mainToken);
+            release = await this.ensureCS(session.session.sessionId, async () => { session=await this.reloadSession(session.session.sessionId,session); });
+            let userData=session.session.data;
+            //let userData=await this.getUserData(session.session.sessionId);
+            if (this.debug) console.log(session.session.sessionId,'Set unfair setting request','Game state',userData.state,'User role',session.role,'Trust state',session?.session?.lock?.trusted);
+            const unfairsettings=req.body.unfairsettings;
+            if (this.debug) console.log(session.session.sessionId, 'new unfairsettings',unfairsettings);
+            if ((session.role=="keyholder") && (session?.session?.lock?.trusted===true))
+            {
+                userData.unfairsetting=unfairsettings;
+                await this.storeUserData(session.session.sessionId,userData);
+            }
+            if (release != null) release();
+            return res.status(200).send(JSON.stringify(result)); 
+        }
+        catch (err)
+        {
+            if (release != null) release();
+            console.log(err);
+            return res.status(501).send('Internal server error');
+        }   
+    }
+
     async changeKey(req,res)
     {
         let response='';
@@ -533,7 +975,7 @@ class FindTheKey extends Extension
                 await this.storeUserData(session.session.sessionId,userData);
                 if (session.role=="keyholder") 
                 {
-                    result.newKey=this.encodeKeyNumber(userData.key);
+                    result.newKey=this.encodeKeySpec({key:userData.key,twin:false,obfuscated:false});
                 }
 
                 if (silent === true)
@@ -650,6 +1092,39 @@ class FindTheKey extends Extension
          let event={event:'tasks_task_failed',detail:data?.data?.actionLog?.payload?.task?.task, sessionId:data?.data?.sessionId };
          events.push(event);
         }  
+
+        if ( (data?.data?.actionLog?.extension == 'verification-picture') && (data?.data?.actionLog?.type== 'verification_picture_submitted'))
+        {
+         let event={event:'verification-picture-submitted',detail:data?.data?.actionLog?.payload, sessionId:data?.data?.sessionId };
+         events.push(event);
+        }          
+
+        if ( (data?.data?.actionLog?.extension == 'link') && (data?.data?.actionLog?.type== 'link_time_changed'))
+        {
+         console.log(data?.data?.actionLog?.payload);
+         let event={event:'link-time-changed',detail:data?.data?.actionLog?.payload, sessionId:data?.data?.sessionId };
+         events.push(event);
+        }                  
+
+
+        if ( (data?.data?.actionLog?.extension == null) && (data?.data?.actionLog?.type== 'time_changed'))
+        {
+         let event={event:'time_changed',detail:data?.data?.actionLog?.payload?.duration, sessionId:data?.data?.sessionId };
+         console.log(data?.data?.actionLog?.payload);
+         events.push(event);
+        }  
+
+        if ( (data?.data?.actionLog?.extension == 'jigsaw-puzzle') && (data?.data?.actionLog?.type== 'custom') && (data?.data?.actionLog?.title == 'Puzzle completed'))
+        {
+         let event={event:'jigsaw_completed',detail:null, sessionId:data?.data?.sessionId };
+         console.log(data?.data?.actionLog?.payload);
+         events.push(event);
+        }          
+
+
+        
+
+
         return events;
     }
 
@@ -672,6 +1147,70 @@ class FindTheKey extends Extension
                     }
                 });
         }
+        if (e.event=='time_changed')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'add_time') || (b.time>e.detail));
+                await this.storeUserData(e.sessionId,userData);
+            }
+        }
+
+        if (e.event=='verification-picture-submitted')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'verification') );
+                await this.storeUserData(e.sessionId,userData);
+            }
+        }
+
+        if (e.event=='link-time-changed')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'shared_link') );
+                await this.storeUserData(e.sessionId,userData);
+            }
+        }    
+
+        if (e.event=='wheel_of_fortune_turned')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'turn_wheel_of_fortune') );
+                await this.storeUserData(e.sessionId,userData);
+            }
+        }   
+
+        if (e.event=='tasks_task_completed')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'task_completed') );
+                await this.storeUserData(e.sessionId,userData);
+            }
+        }  
+        
+        if (e.event=='tasks_task_failed')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'task_failed') );
+                await this.storeUserData(e.sessionId,userData);
+            }
+        } 
+        
+        if (e.event=='jigsaw_completed')
+        {
+            if (userData.blocks != undefined)
+            {
+                userData.blocks = userData.blocks.filter (b => (b.type != 'jigsaw_complete') );
+                await this.storeUserData(e.sessionId,userData);
+            }
+        } 
+
+        
         //async processActionList(sessionId,actions,userData,guessedKey)
     }
 
