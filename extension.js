@@ -375,13 +375,14 @@ class  Extension
         let tryidx=0;
         let responsedata=null;
         const apicallId=this.generateRandomIdentifier(8);
+        const sleeptimes=[0,0,500,1500,3000,6000,15000,30000,30000,30000,30000,30000,30000];
         ai.logId=logId+' '+apicallId
         while (tryidx < retries)
         {
             tryidx++;
             if (tryidx>1) 
             {
-                const sleeptime=(tryidx-1)*3000;
+                const sleeptime=sleeptimes[tryidx];//(tryidx-1)*3000;
                 if (this.debug) console.log(logId+' '+apicallId,'Sleeping for',sleeptime,' before next try');
                 await this.sleep(sleeptime);
             }
@@ -447,7 +448,7 @@ class  Extension
      */
     async getUserData(sessionID)
     {
-        const userData= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
+        const userData= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,5,false,[401,404]);
         return (userData.session.data);
     }
 
@@ -460,7 +461,7 @@ class  Extension
     async storeUserData(sessionID,userData)
     {
         this.basicInfoCache.invalidate(sessionID);        
-        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"data":userData},3,true,[401,404]);
+        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"data":userData},5,true,[401,404]);
         return (rv);
     }
 
@@ -471,7 +472,7 @@ class  Extension
      */
     async getSession(sessionID)
     {
-        const session= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
+        const session= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,5,false,[401,404]);
         return (session);
     }    
 
@@ -482,7 +483,7 @@ class  Extension
      */
     async getSessionMetaData(sessionID)
     {
-        const userData= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,3,false,[401,404]);
+        const userData= await this.APICall(sessionID,'GET','sessions/'+sessionID,null,5,false,[401,404]);
         return (userData.session.metadata);
     }
 
@@ -495,7 +496,7 @@ class  Extension
     async storeSessionMetaData(sessionID,metaData)
     {
         this.basicInfoCache.invalidate(sessionID);
-        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}},3,true,[401,404]);
+        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}},5,true,[401,404]);
         //const rv= await this.APIPatch('sessions/'+sessionID,{"metadata":{"reasonsPreventingUnlocking":metaData.reasonsPreventingUnlocking,"homeActions":metaData.homeActions}});
         return (rv);
     } 
@@ -509,7 +510,7 @@ class  Extension
     async storeSessionConfig(sessionID,config)
     {
         this.basicInfoCache.invalidate(sessionID);
-        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"config":config},3,true,[401,404]);
+        const rv= await this.APICall(sessionID,'PATCH','sessions/'+sessionID,{"config":config},5,true,[401,404]);
         return (rv);
     }     
     
@@ -534,7 +535,7 @@ class  Extension
     {
         this.basicInfoCache.invalidate(sessionID);
         let ai={"status":0};
-        const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/regular-actions',{"payload":payload},3,true,[401,404,422],ai);
+        const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/regular-actions',{"payload":payload},5,true,[401,404,422],ai);
         return (ai.status==201);  
     }
 
@@ -564,7 +565,7 @@ class  Extension
      */
     async saveConfigurationForConfigurationToken(configurationToken,config)
     {
-        const newconfig= await this.APICall(configurationToken,'PUT','configurations/'+configurationToken,{"config":config.config},3,false,[401,404]);
+        const newconfig= await this.APICall(configurationToken,'PUT','configurations/'+configurationToken,{"config":config.config},5,false,[401,404]);
         return (newconfig);
     }        
 
@@ -585,7 +586,7 @@ class  Extension
     async lockAction(sessionID,actionData)
     {
         this.basicInfoCache.invalidate(sessionID);
-        const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/action',actionData,3,true,[401,404]);
+        const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/action',actionData,5,true,[401,404]);
         return(rv);
     }
 
@@ -690,7 +691,7 @@ class  Extension
              "title": title,
              "description": description
            };
-           const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/logs/custom',log,3,true,[401,404,422]);
+           const rv= await this.APICall(sessionID,'POST','sessions/'+sessionID+'/logs/custom',log,5,true,[401,404,422]);
            return(rv); 
     }
 
@@ -754,7 +755,7 @@ class  Extension
     *   ]
     * }
     */
-    async findAllSessions(extensionSlug,searchCount=15)
+    async findAllSessions(extensionSlug,searchCount=30)
     {
         let sessions=await this.searchSessions(extensionSlug);
         while (sessions.hasMore)
