@@ -113,7 +113,7 @@ class FindTheKey extends Extension
                         let userData= session.session.data;
                         let config= session.session.config;
                         config=this.sanitizeConfig(config,userData);        
-                        userData=this.addLogMessage(userData,{source:'Find the Key',message:'Processing delayed event',icon:'clock-rotate-left',level:'major'});
+                        userData=this.addLogMessage(userData,{source:'Find the Key',message:'Processing delayed event(s)',icon:'clock-rotate-left',level:'major'});
                         userData= await this.processActionList(delayedEvent.sessionId,delayedEvent.actions,userData,config,delayedEvent.guessedKey);
                         await this.storeUserData(delayedEvent.sessionId,userData);
                     }
@@ -250,12 +250,12 @@ class FindTheKey extends Extension
     {
         this.unfairSettings=
         {
-            unabletoguess :              [0,10,15,20,33,50],
+            unabletoguess :              [0,10,15,20,33,33],
             delayactions  :              [0, 0, 0,15,33,50],
             hidekeys :                   [0, 0,10,15,33,50],
             doubleactions :              [0, 0,10,15,33,50],
             twins :                      [0, 0,10,15,33,50],
-            nocorrectkey :               [0, 0, 0,15,33,50],
+            nocorrectkey :               [0, 0, 0,15,33,40],
             liecorrect:                  [0, 0, 0, 7,15,20],
             blocktime:                   [0, 5, 5,10,15,25],
             blocktime_time:              [5*60, 5*60, 5*60, 5*60,15*60,60*60],
@@ -637,7 +637,7 @@ class FindTheKey extends Extension
             let guessOk=(guessedKey==userData.key);
             const guessNr=userData.keysguessed; 
             if (this.debug) console.log(session.session.sessionId,'Wearer guessed key ',guessedKey,'. Correct key is ',userData.key,'. User guess is '+((guessOk)?'correct':'incorrect'));
-            userData=this.addLogMessage(userData,{source:'Wearer',message:'Guessed key, guess number '+(guessNr+1)+', initial guess result is '+(guessOk?"correct":"incorrect"),icon:'key',level:'critical'});
+            userData=this.addLogMessage(userData,{source:'Wearer',message:'Guess number '+(guessNr+1)+', wearer guessed key, provisional guess result is '+(guessOk?"correct":"incorrect"),icon:'key',level:'critical'});
             const response={guessResult:null,guessProcessed:null};
             const actionInfo=this.regularActionInfo(session.session);
             if (actionInfo.available)
@@ -680,7 +680,7 @@ class FindTheKey extends Extension
                             if ((userData.otherKeys.length>0) && (config.keyspresented>1))
                             {
                                 if (this.debug) console.log(session.session.sessionId,' liecorrect unfair activated, wearer guessed correctly, swapping correct key');  
-                                userData=this.addLogMessage(userData,{source:'Find the Key',message:'Lie correct blocker activated',icon:'hand',level:'critical'});
+                                userData=this.addLogMessage(userData,{source:'Find the Key',message:'"Lie correct blocker" activated',icon:'hand',level:'critical'});
                                 guessOk=false;                            
                                 const oldcorrectkey=userData.key;
                                 userData.key=userData.otherKeys[0];
@@ -819,7 +819,7 @@ class FindTheKey extends Extension
                             {
                                 this.resetOrSetKeys(userData,false); 
                                 this.stats.statsCounterInc('keys_reset','{reason="wrongguess"}');
-                                userData=this.addLogMessage(userData,{source:'Find the Key',message:'All keys reset',icon:'key',level:'major'});
+                                userData=this.addLogMessage(userData,{source:'Find the Key',message:'All (fakes and correct one) keys reset',icon:'key',level:'major'});
                             }
                             
                             
@@ -838,7 +838,14 @@ class FindTheKey extends Extension
                             if (this.debug) console.log(sessionId,'afterremovedkey','NewDiff:',userData.keysPresentedDiff);
                             if (userData.knownableWrongs==undefined) userData.knownableWrongs={};
                             userData.knownableWrongs[guessedKey]=0;
-                            userData=this.addLogMessage(userData,{source:'Find the Key',message:'Guessed key '+((action.action=='removeguessedkey')?'removed':'replaced'),icon:'key',level:'major'});
+                            if (action.action=='removeguessedkey')
+                                {
+                                    if  (postCount!=preCount) userData=this.addLogMessage(userData,{source:'Find the Key',message:'Guessed key removed',icon:'key',level:'major'});
+                                }
+                                else
+                                    userData=this.addLogMessage(userData,{source:'Find the Key',message:'Guessed key replaced',icon:'key',level:'major'});
+
+                            
                         break;
                     case 'removefakekeys':
                             await this.setKeysPresentedDiffInc(sessionId,userData,config,-1*action.number,true);
@@ -1497,7 +1504,7 @@ class FindTheKey extends Extension
             //const sessions = await  this.findAllSessions(this.slug);
             let sessions=undefined;
             if (cnt%15==0)
-               sessions = await  this.findAllSessions(this.slug,50);
+               sessions = await  this.findAllSessions(this.slug,100);
             else
                sessions = await  this.searchSessions(this.slug,1);
             if ((sessions != undefined) && (sessions.count != undefined))
