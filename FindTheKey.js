@@ -205,12 +205,12 @@ class FindTheKey extends Extension
         config=this.sanitizeConfig(config,userData);        
         if (this.debug) console.log(sessionId,'StartGame','Config',config);   
         userData=this.addLogMessage(userData,{source:'Find the Key',message:'Game started',icon:'play',level:'major'});
-        if (config.startupBlockers != undefined)
+        if ((config.startupBlockers != undefined) && (config.unfairslevel==-1))
         {
             if (this.debug) console.log(sessionId,'Applying startup blockers',config.startupBlockers);
             userData.blocks=config.startupBlockers;
         }
-        if (config.startupUnfairs != undefined)
+        if ((config.startupUnfairs != undefined) && (config.unfairslevel==-1))
         {
             if (this.debug) console.log(sessionId,'Applying startup unfairs',config.startupUnfairs);
             let processedUnfairs=[];
@@ -225,7 +225,7 @@ class FindTheKey extends Extension
             //console.log('processed unfairs',processedUnfairs)    ;
             userData.unfairs=processedUnfairs;
         }        
-        if (config.startupUnfairSettings != undefined)
+        if ((config.startupUnfairSettings != undefined) && (config.unfairslevel==-1))
         {
             if (this.debug) console.log(sessionId,'Applying startup unfair settings',config.startupUnfairSettings);
             userData.unfairsetting=config.startupUnfairSettings.user; 
