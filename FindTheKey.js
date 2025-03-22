@@ -81,7 +81,7 @@ class FindTheKey extends Extension
         this.stats.addStat(new StatsCounter('game_restart','The total number of game restarts'));                
         this.stats.addStat(new StatsCounter('pillory','The total number of wearers sent to the pillory'));
         this.stats.addStat(new StatsCounter('unfair_events_generate','Unfair events generation counters'));
-        this.stats.addStat(new StatsCounter('db_exectime','The number of DB exec times'));
+        this.stats.addStat(new StatsCounter('sql_wait','The number of DB exec times'));
         
     }
 
@@ -352,14 +352,21 @@ class FindTheKey extends Extension
 
             userData.unfairs.forEach ( (u) =>
                 {
-                    if (u.type=='blocker_addtime') { userData.blocks.push({type:'add_time'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_addtime"}'); }; 
-                    if (u.type=='blocker_freeze') { userData.blocks.push({type:'freeze'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_freeze"}'); }; 
-                    if (u.type=='blocker_verification') { userData.blocks.push({type:'verification'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_verification"}'); }; 
-                    if (u.type=='blocker_shared_link') { userData.blocks.push({type:'shared_link'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_shared_link"}'); }; 
-                    if (u.type=='blocker_turn_wheel_of_fortune') { userData.blocks.push({type:'turn_wheel_of_fortune'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_wheel_of_fortune"}'); }; 
-                    if (u.type=='blocker_task_completed') { userData.blocks.push({type:'task_completed'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_task_completed"}'); }; 
-                    if (u.type=='blocker_task_failed') { userData.blocks.push({type:'task_failed'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_task_failed"}'); }; 
-                    if (u.type=='blocker_jigsaw_complete') { userData.blocks.push({type:'jigsaw_complete'});this.stats.statsCounterInc('unfair_events_defined','{event="igsaw_complete"}'); }; 
+                    if (this.predicateActiveUnfair(u,guessNumber,config))
+                    {    
+                        let addTime=userData?.unfairsetting?.blocktime_time;
+                        if (addTime==undefined) config?.startupUnfairSettings?.user?.blocktime_time;
+                        if (addTime==undefined) config?.startupUnfairSettings?.default?.blocktime_time;
+                        if (addTime==undefined) addTime=3600;
+                        if (u.type=='blocker_addtime') { userData.blocks.push({type:'add_time',time:this.random(addTime*0.5,addTime*1.5)});this.stats.statsCounterInc('unfair_events_defined','{event="applied_addtime"}');  }; 
+                        if (u.type=='blocker_freeze') { userData.blocks.push({type:'freeze'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_freeze"}');  }; 
+                        if (u.type=='blocker_verification') { userData.blocks.push({type:'verification'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_verification"}');  }; 
+                        if (u.type=='blocker_shared_link') { userData.blocks.push({type:'shared_link'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_shared_link"}');  }; 
+                        if (u.type=='blocker_turn_wheel_of_fortune') { userData.blocks.push({type:'turn_wheel_of_fortune'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_wheel_of_fortune"}');  }; 
+                        if (u.type=='blocker_task_completed') { userData.blocks.push({type:'task_completed'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_task_completed"}');  }; 
+                        if (u.type=='blocker_task_failed') { userData.blocks.push({type:'task_failed'});this.stats.statsCounterInc('unfair_events_defined','{event="applied_task_failed"}'); }; 
+                        if (u.type=='blocker_jigsaw_complete') { userData.blocks.push({type:'jigsaw_complete'});this.stats.statsCounterInc('unfair_events_defined','{event="igsaw_complete"}');  }; 
+                    }
 
                 });
             //if (this.debug) console.log(sessionId,'Generated unfairs for guess. All unfairs:',userData.unfairs);
@@ -1327,6 +1334,22 @@ class FindTheKey extends Extension
         return events;
     }
 
+    matchStrings(a,b)
+    {
+        if (a==b) return (true);
+        try 
+        {
+          if ((a.toUpperCase!=undefined) &&  (b.toUpperCase!=undefined) && (a.toUpperCase()==b.toUpperCase())) return true;    
+        } catch (error) 
+        {
+            console.log('String Match error',a,b,error);
+        }
+        
+        
+        return (false);
+
+    }
+
     async processActionLogEvent(e)
     {
         let storeNeeded=false;
@@ -1340,7 +1363,7 @@ class FindTheKey extends Extension
         {
             config.oncustom.forEach(async oncustom=>
                 {
-                    if ((oncustom.event==e.event) && (oncustom.detail=='' || oncustom.detail==undefined || oncustom.detail=='undefined' || (oncustom.detail.toUpperCase()==e.detail.toUpperCase())))
+                    if ((oncustom.event==e.event) && (oncustom.detail=='' || oncustom.detail==undefined || oncustom.detail=='undefined' || e.detail==undefined || (this.matchStrings(oncustom.detail,e.detail))))
                     {
                         //console.log('Action match',oncustom);
                         await this.processActionList(e.sessionId,oncustom.actions,userData,config);
@@ -1546,7 +1569,7 @@ class FindTheKey extends Extension
             let res=await this.db.query('INSERT INTO public.keyholderlog (sessionid, tstamp,msg) VALUES ($1,NOW(),$2) RETURNING *', [sessionId,msg]);        
             const sqlwait=this.end_profile(profilename);
             if (this.debugDB) console.log(sessionId,'SQL storeLogMessage wait ',sqlwait,'ms');
-            this.stats.statsCounterInc('sql_wait','{time="'+((Math.floor(sqlwait/500)*500).toString().padStart(5,'0'))+'",query="storeLogMessage"}');
+            this.stats.statsCounterInc('sql_wait','{time="'+((Math.floor(sqlwait/100)*100).toString().padStart(5,'0'))+'",query="storeLogMessage"}');
         } catch (error) 
         {
             console.log(sessionId,'SQL ERROR storeLogMessage error ',error);
@@ -1565,7 +1588,7 @@ class FindTheKey extends Extension
             if (cnt!=undefined) res=await this.db.query('select msg from public.keyholderlog  where sessionid=$1 order by tstamp desc LIMIT $2', [sessionId,cnt]);         else res=await this.db.query('select msg from public.keyholderlog  where sessionid=$1 order by tstamp desc ', [sessionId]);        
             const sqlwait=this.end_profile(profilename);
             if (this.debugDB) console.log(sessionId,'SQL getLogMessages('+cnt+') wait ',sqlwait,'ms');
-            this.stats.statsCounterInc('sql_wait','{time="'+((Math.floor(sqlwait/500)*500).toString().padStart(5,'0'))+'",query="getLogMessages",limit="'+((cnt==null)?"all":cnt)+'"}');
+            this.stats.statsCounterInc('sql_wait','{time="'+((Math.floor(sqlwait/100)*100).toString().padStart(5,'0'))+'",query="getLogMessages",limit="'+((cnt==null)?"all":cnt)+'"}');
             if (res?.rows != undefined) res.rows.forEach(r=>msgs.push(r.msg));
         } catch (error) 
         {

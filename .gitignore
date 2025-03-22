@@ -26,3 +26,4 @@ pnpm-debug.log*
 *.sw?
 
 cronlog
+deploy_devel.bat
